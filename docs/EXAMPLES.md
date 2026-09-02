@@ -87,6 +87,48 @@ items[2]:
     extra: true
 ```
 
+## Nested Field Groups
+
+A column whose values are uniform objects keeps the array tabular; the header declares the nesting and the rows stay flat:
+
+```php
+echo Toon::encode([
+    'items' => [
+        ['sku' => 'A1', 'dims' => ['w' => 10, 'h' => 4]],
+        ['sku' => 'B2', 'dims' => ['w' => 7, 'h' => 9]]
+    ]
+]);
+```
+
+Output:
+
+```
+items[2]{sku,dims{w,h}}:
+  A1,10,4
+  B2,7,9
+```
+
+## Keyed Tabular Objects
+
+An object with at least two entries whose values share one uniform shape collapses into a table whose rows carry their own keys:
+
+```php
+echo Toon::encode([
+    'stations' => [
+        'tempelhof' => ['lat' => 52.47, 'active' => true],
+        'tegel' => ['lat' => 52.55, 'active' => false]
+    ]
+]);
+```
+
+Output:
+
+```
+stations[2:]{lat,active}:
+  tempelhof: 52.47,true
+  tegel: 52.55,false
+```
+
 ## Array of Arrays
 
 ```php
@@ -103,6 +145,37 @@ pairs[2]:
   - [2]: c,d
 ```
 
+## Empty Arrays
+
+```php
+echo Toon::encode(['items' => []]);
+echo Toon::encode([]);
+```
+
+Output:
+
+```
+items: []
+[]
+```
+
+PHP represents both `[]` and `{}` as an empty array, so an empty PHP array is always encoded as an empty array.
+
+## Comments
+
+Comments are decode-only: a line whose first non-space character is `#` is removed before any other parsing, so it never terminates a scope and never counts toward a declared length.
+
+```php
+Toon::decode(<<<TOON
+# Weekly export
+forecast[2]{day,condition}:
+  # Monday was revised
+  Mon,snow
+  Tue,cloudy
+TOON);
+// ['forecast' => [['day' => 'Mon', 'condition' => 'snow'], ['day' => 'Tue', 'condition' => 'cloudy']]]
+```
+
 ## Configuration Options
 
 Customize encoding behavior with `EncodeOptions`:
@@ -111,7 +184,7 @@ Customize encoding behavior with `EncodeOptions`:
 use HelgeSverre\Toon\EncodeOptions;
 
 // Custom indentation (default: 2)
-$options = new EncodeOptions(indent: 4);
+$options = new EncodeOptions(indentSize: 4);
 echo Toon::encode(['a' => ['b' => 'c']], $options);
 // a:
 //     b: c

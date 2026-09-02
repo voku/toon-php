@@ -42,7 +42,7 @@ just benchmark
 
 ## Architecture
 
-TOON PHP is a port of the TOON (Token-Oriented Object Notation) format specification, which achieves 30-60% token reduction vs JSON for LLM contexts. The implementation strictly follows the **TOON Specification v3.3** (see `docs/SPEC.md`).
+TOON PHP is a port of the TOON (Token-Oriented Object Notation) format specification, which achieves 30-60% token reduction vs JSON for LLM contexts. The implementation strictly follows the **TOON Specification v4.1** (see `docs/SPEC.md`).
 
 ### Core Components
 
@@ -54,25 +54,34 @@ TOON PHP is a port of the TOON (Token-Oriented Object Notation) format specifica
 6. **EncodeOptions** (`src/EncodeOptions.php`) - Configuration with presets
 7. **Constants** (`src/Constants.php`) - Shared syntax tokens
 8. **Helpers** (`src/helpers.php`) - Global helper functions
+9. **Fields** (`src/Fields.php`) - Field-list detection, rendering and materialization shared by the tabular and keyed tabular forms
 
 ### Format Selection Logic
 
-The encoder automatically selects the optimal format:
+The form follows from the value's shape and position, never from preference (§1.4, §9):
 
-1. **Inline format** for arrays of primitives: `[3]: a,b,c`
-2. **Array-of-arrays format** for nested arrays with list items
-3. **Tabular format** for uniform object arrays: `[2]{id,name}: 1,Alice`
-4. **List format** (default) for mixed structures with hyphen markers
+1. **Inline form** for arrays of primitives: `key[3]: a,b,c`
+2. **Array-of-arrays form** for nested arrays with list items
+3. **Tabular form** for uniform object arrays, mandatory wherever detection succeeds: `key[2]{id,name}:` with one row per element. A column whose values are uniform non-empty objects becomes a nested field group: `key[2]{id,dims{w,h}}:`
+4. **Keyed tabular form** for objects with at least two entries whose values are uniform non-empty objects: `key[2:]{a,b}:` with one `entrykey: cells` row per entry. Applies in object-field and root positions only
+5. **List form** for everything else, with hyphen markers
+6. **Empty arrays** are `key: []` in a field and `[]` at the root; an inner list-item array stays `- [0]:`
 
 ### Key Implementation Details
 
 **PHP Array Behavior**: PHP converts numeric string keys to integers. The library handles this by quoting numeric keys when encoding.
 
+**Empty Arrays vs Empty Objects**: PHP represents both `[]` and `{}` as an empty array. The library reads an empty PHP array as an empty array everywhere, so `encode([])` is `[]` and `encode(['k' => []])` is `k: []`.
+
+**§10 Depth Model**: a field carried on a list-item hyphen line stands at depth d+1, so a scope it opens has its content at depth **d+2** — never d+1, which is where the object's sibling fields live.
+
 **String Quoting Rules**: Strings are quoted only when necessary:
 
 - Reserved words: "true", "false", "null"
-- Numeric strings: "42", "3.14"
+- Numeric-like strings: "42", "3.14", "+1"
 - Strings with special characters
+- Strings that equal or start with "#" (they would read back as comment lines)
+- Strings that equal or start with "-"
 - Empty strings: ""
 
 **Enum Normalization**:
@@ -249,7 +258,7 @@ just ci
 
 ## Specification Compliance
 
-**CRITICAL**: This library implements the official TOON Specification v3.3 (docs/SPEC.md). All code changes MUST conform to the specification.
+**CRITICAL**: This library implements the official TOON Specification v4.1 (docs/SPEC.md). All code changes MUST conform to the specification.
 
 ### Key Specification Requirements
 
@@ -259,13 +268,13 @@ just ci
 2. Review `docs/CHANGELOG.md` for the per-version normative changes
 3. Validate your implementation against encoder/decoder conformance checklists (§13 of spec)
 
-**Encoder Conformance (Section 13.1)**: Encoders MUST produce UTF-8 output with LF line endings, use consistent indentation (no tabs), escape backslash/quote/\n/\r/\t and emit other C0 control characters as `\uXXXX`, quote delimiter-containing strings, emit accurate array lengths, preserve key order, use canonical decimal form for `n = 0` or `1e-6 ≤ |n| < 1e21` (exponent notation outside that range), convert -0 to 0, convert NaN/±Infinity to null, and emit no trailing spaces or newlines.
+**Encoder Conformance (Section 13.1)**: Encoders MUST produce UTF-8 output with LF line endings, use consistent indentation (no tabs), escape backslash/quote/\n/\r/\t and emit other C0 control characters as `\uXXXX`, quote delimiter-containing strings, select the form from the value's shape and position rather than by preference, emit accurate array lengths, preserve key order, use canonical decimal form for `n = 0` or `1e-6 ≤ |n| < 1e21` (exponent notation outside that range), convert -0 to 0, convert NaN/±Infinity to null, emit no comment lines, and emit no trailing spaces or newlines.
 
-**Decoder Conformance (Section 13.2)**: Decoders MUST parse array headers correctly, split only on active delimiters, unescape valid escapes only (including `\uXXXX`), type unquoted primitives correctly, enforce strict-mode rules when enabled, and preserve array/object order.
+**Decoder Conformance (Section 13.2)**: Decoders MUST remove comment lines in a lexical pre-pass, accept CRLF input and strip a leading byte-order mark, parse array and keyed headers (including nested field groups) correctly, split only on active delimiters, unescape valid escapes only (including `\uXXXX`), type unquoted primitives by the §4 number grammar, accept any unquoted key token as a literal key, enforce strict-mode rules when enabled, and preserve array/object order.
 
 ## Important Reminders
 
-1. **Follow the spec** - ALL code changes must conform to TOON Specification v3.3 in `docs/SPEC.md`
+1. **Follow the spec** - ALL code changes must conform to TOON Specification v4.1 in `docs/SPEC.md`
 2. **Use justfile commands** - Always prefer `just` over raw composer/vendor commands
 3. **Keep CHANGELOG.md updated** - Document all user-facing changes
 4. **No scattered test files** - All tests go in `tests/` directory only

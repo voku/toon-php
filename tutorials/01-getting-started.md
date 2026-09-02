@@ -294,7 +294,7 @@ echo toon_tabular($tabData) . "\n\n";
 
 echo "=== Custom Options ===\n";
 $options = new EncodeOptions(
-    indent: 3,
+    indentSize: 3,
     delimiter: '|'
 );
 $customData = ['items' => ['apple', 'banana', 'cherry']];
@@ -591,7 +591,7 @@ class LogProcessor {
     private EncodeOptions $options;
 
     public function __construct() {
-        $this->options = new EncodeOptions(indent: 2, delimiter: ',');
+        $this->options = new EncodeOptions(indentSize: 2, delimiter: ',');
     }
 
     public function addLog(string $level, string $message, array $context = []): void {

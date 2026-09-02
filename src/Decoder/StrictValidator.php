@@ -84,7 +84,7 @@ final class StrictValidator
      *
      * @param  int  $expected  Expected count from [N] declaration
      * @param  int  $actual  Actual parsed count
-     * @param  string  $arrayType  Type: 'inline', 'list', or 'tabular'
+     * @param  string  $arrayType  Type: 'inline', 'list', 'tabular', or 'keyed'
      * @param  int  $lineNumber  Line number for error reporting
      * @param  string  $snippet  Content snippet for error context
      * @param  bool  $strict  Whether strict mode is enabled
@@ -108,6 +108,7 @@ final class StrictValidator
                 'inline' => "Inline array length mismatch: expected $expected, got $actual",
                 'list' => "List array length mismatch: expected $expected, got $actual",
                 'tabular' => "Tabular array length mismatch: expected $expected rows, got $actual",
+                'keyed' => "Keyed tabular entry count mismatch: expected $expected entries, got $actual",
                 default => "Array length mismatch: expected $expected, got $actual",
             };
 

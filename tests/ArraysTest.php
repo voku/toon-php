@@ -32,8 +32,10 @@ final class ArraysTest extends TestCase
 
     public function test_encode_empty_array(): void
     {
+        // §9.1: empty arrays in object-field position are "key: []"; the legacy
+        // header form "key[0]:" MUST NOT be emitted.
         $input = ['items' => []];
-        $expected = 'items[0]:';
+        $expected = 'items: []';
         $this->assertEquals($expected, Toon::encode($input));
     }
 
@@ -130,17 +132,15 @@ final class ArraysTest extends TestCase
 
     public function test_encode_root_empty_array(): void
     {
-        // P0 Critical: Root-level empty array produces empty string, not [0]:
-        // In PHP, empty arrays are treated as empty objects
-        $this->assertEquals('', Toon::encode([]));
+        // §9.1: an empty array at the root is the literal "[]" on its own line.
+        $this->assertEquals('[]', Toon::encode([]));
     }
 
     public function test_encode_root_empty_array_explicit(): void
     {
-        // P0 Critical: Explicit test that root empty array is empty string
-        // This is fundamental distinction from nested empty arrays which produce [0]:
+        // The legacy root form "[0]:" MUST NOT be emitted.
         $result = Toon::encode([]);
-        $this->assertSame('', $result);
+        $this->assertSame('[]', $result);
         $this->assertNotEquals('[0]:', $result);
     }
 
@@ -170,7 +170,7 @@ final class ArraysTest extends TestCase
         // P0 Critical: When first field is an empty array, it appears on the hyphen line
         // This tests the special handling of first field in list format
         $input = [['data' => [], 'name' => 'x']];
-        $expected = "[1]:\n  - data[0]:\n    name: x";
+        $expected = "[1]:\n  - data: []\n    name: x";
         $this->assertEquals($expected, Toon::encode($input));
     }
 }

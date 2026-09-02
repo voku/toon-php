@@ -22,7 +22,7 @@ final class Version2BreakingChangesTest extends TestCase
     {
         // v2.0: [#N]: format is INVALID
         $this->expectException(SyntaxException::class);
-        $this->expectExceptionMessage('[#N] syntax is not supported in TOON v2.0');
+        $this->expectExceptionMessage('Malformed bracket segment');
 
         Toon::decode('[#3]: a,b,c');
     }
@@ -31,7 +31,7 @@ final class Version2BreakingChangesTest extends TestCase
     {
         // v2.0: [#N]: format with list items is INVALID
         $this->expectException(SyntaxException::class);
-        $this->expectExceptionMessage('[#N] syntax is not supported in TOON v2.0');
+        $this->expectExceptionMessage('Malformed bracket segment');
 
         $toon = "[#2]:\n  - a\n  - b";
         Toon::decode($toon);
@@ -41,7 +41,7 @@ final class Version2BreakingChangesTest extends TestCase
     {
         // v2.0: [#N]{fields}: format is INVALID
         $this->expectException(SyntaxException::class);
-        $this->expectExceptionMessage('[#N] syntax is not supported in TOON v2.0');
+        $this->expectExceptionMessage('Malformed bracket segment');
 
         $toon = "[#2]{id,name}:\n  1,Alice\n  2,Bob";
         Toon::decode($toon);
@@ -51,7 +51,7 @@ final class Version2BreakingChangesTest extends TestCase
     {
         // v2.0: key[#N]: format is INVALID
         $this->expectException(SyntaxException::class);
-        $this->expectExceptionMessage('[#N] syntax is not supported in TOON v2.0');
+        $this->expectExceptionMessage('Malformed bracket segment');
 
         Toon::decode('items[#3]: a,b,c');
     }
@@ -60,7 +60,7 @@ final class Version2BreakingChangesTest extends TestCase
     {
         // v2.0: [#N|]: format with pipe delimiter is INVALID
         $this->expectException(SyntaxException::class);
-        $this->expectExceptionMessage('[#N] syntax is not supported in TOON v2.0');
+        $this->expectExceptionMessage('Malformed bracket segment');
 
         Toon::decode('[#3|]: a|b|c');
     }
@@ -69,7 +69,7 @@ final class Version2BreakingChangesTest extends TestCase
     {
         // v2.0: [#N\t]: format with tab delimiter is INVALID
         $this->expectException(SyntaxException::class);
-        $this->expectExceptionMessage('[#N] syntax is not supported in TOON v2.0');
+        $this->expectExceptionMessage('Malformed bracket segment');
 
         Toon::decode("[#3\t]: a\tb\tc");
     }
@@ -110,7 +110,7 @@ final class Version2BreakingChangesTest extends TestCase
     {
         // v2.0: [N#]: pattern (# after digits) is also INVALID
         $this->expectException(SyntaxException::class);
-        $this->expectExceptionMessage('[#N] syntax is not supported in TOON v2.0');
+        $this->expectExceptionMessage('Malformed bracket segment');
 
         Toon::decode('[5#]: a,b,c');
     }
@@ -119,7 +119,7 @@ final class Version2BreakingChangesTest extends TestCase
     {
         // v2.0: [##N]: pattern is INVALID
         $this->expectException(SyntaxException::class);
-        $this->expectExceptionMessage('[#N] syntax is not supported in TOON v2.0');
+        $this->expectExceptionMessage('Malformed bracket segment');
 
         Toon::decode('[##5]: a,b,c');
     }

@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace HelgeSverre\Toon\Decoder;
 
+use HelgeSverre\Toon\Constants;
 use HelgeSverre\Toon\DecodeOptions;
+use HelgeSverre\Toon\Exceptions\SyntaxException;
 
 /**
  * Tokenizes TOON input into lines with metadata.
@@ -13,6 +15,9 @@ use HelgeSverre\Toon\DecodeOptions;
  */
 final class Tokenizer
 {
+    /** UTF-8 encoding of U+FEFF (§12). */
+    private const BYTE_ORDER_MARK = "\xEF\xBB\xBF";
+
     /**
      * Tokenize TOON input into lines with metadata.
      *
@@ -22,6 +27,17 @@ final class Tokenizer
      */
     public static function tokenize(string $input, DecodeOptions $options): array
     {
+        // §12: a single leading U+FEFF is a byte-order mark, not content.
+        if (str_starts_with($input, self::BYTE_ORDER_MARK)) {
+            $input = substr($input, strlen(self::BYTE_ORDER_MARK));
+        }
+
+        // §4/§14.2: byte input MUST decode as UTF-8; strict mode errors on
+        // ill-formed sequences rather than substituting U+FFFD.
+        if ($options->strict && $input !== '' && ! mb_check_encoding($input, 'UTF-8')) {
+            throw new SyntaxException('Ill-formed UTF-8 in input', 0);
+        }
+
         // Preprocess input (handle trailing newlines)
         $input = self::preprocessInput($input);
 
@@ -29,9 +45,29 @@ final class Tokenizer
         $rawLines = explode("\n", $input);
 
         $lines = [];
-        $lineNumber = 1;
+        $lineNumber = 0;
 
         foreach ($rawLines as $line) {
+            $lineNumber++;
+
+            // §12: a trailing CR belongs to the line terminator (CRLF input), and
+            // trailing spaces are not part of the line's content. Both are removed
+            // before line classification.
+            if (str_ends_with($line, "\r")) {
+                $line = substr($line, 0, -1);
+            }
+            $line = rtrim($line, ' ');
+
+            // §5.1: a line whose first character after zero or more leading spaces
+            // is "#" is a comment line, removed in a lexical pre-pass in strict and
+            // non-strict mode alike. Only spaces may precede the "#"; a tab in the
+            // leading whitespace disqualifies the line. Removal never creates or
+            // terminates a scope, and a comment is never counted as a row, item,
+            // entry, or blank line, so the line is dropped entirely.
+            if (str_starts_with(ltrim($line, ' '), Constants::COMMENT_MARKER)) {
+                continue;
+            }
+
             // Track blank lines (needed for strict mode validation in arrays)
             if (trim($line) === '') {
                 $lines[] = [
@@ -41,7 +77,6 @@ final class Tokenizer
                     'indent' => 0,
                     'blank' => true,
                 ];
-                $lineNumber++;
 
                 continue;
             }
@@ -52,7 +87,7 @@ final class Tokenizer
             // Validate indentation in strict mode
             if ($options->strict) {
                 StrictValidator::validateNoTabIndentation($line, $lineNumber);
-                StrictValidator::validateIndentationMultiple($indent, $options->indent, $lineNumber, $line);
+                StrictValidator::validateIndentationMultiple($indent, $options->indentSize, $lineNumber, $line);
             } else {
                 // In lenient mode, check for tabs but don't error (per §12.10)
                 // Current implementation: reject tabs in both modes (implementation-defined)
@@ -61,7 +96,7 @@ final class Tokenizer
             }
 
             // Compute depth
-            $depth = self::computeDepth($indent, $options->indent, $options->strict);
+            $depth = self::computeDepth($indent, $options->indentSize, $options->strict);
 
             $lines[] = [
                 'content' => $line,
@@ -70,8 +105,6 @@ final class Tokenizer
                 'indent' => $indent,
                 'blank' => false,
             ];
-
-            $lineNumber++;
         }
 
         return $lines;

@@ -158,6 +158,64 @@ users[2]{id,name,role}:
 
 Field names are declared once in the header, then each row contains only values. This is where TOON achieves the largest token savings compared to JSON.
 
+### Nested Field Groups
+
+A column whose values are uniform objects keeps the array tabular. The header declares the nesting; the rows stay flat:
+
+```php
+echo Toon::encode([
+    'forecast' => [
+        ['day' => 'Mon', 'temp' => ['min' => -2, 'max' => 4], 'condition' => 'snow'],
+        ['day' => 'Tue', 'temp' => ['min' => 1, 'max' => 7], 'condition' => 'cloudy'],
+    ]
+]);
+```
+
+Output:
+
+```
+forecast[2]{day,temp{min,max},condition}:
+  Mon,-2,4,snow
+  Tue,1,7,cloudy
+```
+
+Groups nest arbitrarily deep. Cells map one-to-one to the header's leaf fields in depth-first order.
+
+### Keyed Tabular Form
+
+An object whose values share one uniform shape collapses into a table whose rows carry their own keys. A colon after the length — `[3:]` — marks the keyed form:
+
+```php
+echo Toon::encode([
+    'stations' => [
+        'tempelhof' => ['lat' => 52.47, 'lon' => 13.4, 'active' => true],
+        'tegel' => ['lat' => 52.55, 'lon' => 13.29, 'active' => false],
+        'dahlem' => ['lat' => 52.46, 'lon' => 13.3, 'active' => true],
+    ]
+]);
+```
+
+Output:
+
+```
+stations[3:]{lat,lon,active}:
+  tempelhof: 52.47,13.4,true
+  tegel: 52.55,13.29,false
+  dahlem: 52.46,13.3,true
+```
+
+It needs at least two entries, and applies to object fields and the document root. A keyed header can carry nested field groups too: `stations[3:]{coords{lat,lon},active}:`.
+
+### Comments
+
+A line whose first non-space character is `#` is a comment. Comments are removed before any other parsing, so they never terminate a scope and never count toward a declared length:
+
+```php
+Toon::decode("# Weekly export\nforecast[2]{day,condition}:\n  # revised\n  Mon,snow\n  Tue,cloudy");
+```
+
+There is no inline or trailing comment form. The encoder never emits comments, and always quotes strings that start with `#`, so its output can never be read back as one.
+
 See [docs/EXAMPLES.md](docs/EXAMPLES.md) for more encoding examples.
 
 ## Configuration Options
@@ -168,7 +226,7 @@ Customize encoding behavior with `EncodeOptions`:
 use HelgeSverre\Toon\EncodeOptions;
 
 // Custom indentation (default: 2)
-$options = new EncodeOptions(indent: 4);
+$options = new EncodeOptions(indentSize: 4);
 echo Toon::encode(['a' => ['b' => 'c']], $options);
 // a:
 //     b: c
@@ -184,6 +242,8 @@ echo Toon::encode(['tags' => ['a', 'b', 'c']], $options);
 // tags[3|]: a|b|c
 ```
 
+`indentSize` is the option name used by the specification. The former `indent` name still works on both `EncodeOptions` and `DecodeOptions` as a deprecated alias.
+
 ## Special Value Handling
 
 ### String Quoting
@@ -197,6 +257,8 @@ echo Toon::encode('42');              // "42" (quoted - looks like number)
 echo Toon::encode('a:b');             // "a:b" (quoted - contains colon)
 echo Toon::encode('');                // "" (quoted - empty string)
 echo Toon::encode("line1\nline2");    // "line1\nline2" (quoted - control chars)
+echo Toon::encode('#tag');            // "#tag" (quoted - would read as a comment)
+echo Toon::encode('+1');              // "+1" (quoted - numeric lookalike)
 ```
 
 ### DateTime Objects
@@ -333,6 +395,7 @@ This library tracks the [TOON Specification](https://github.com/toon-format/spec
 
 | Library | Spec | Key Changes |
 |---------|------|-------------|
+| v4.0.0 | v4.1 | Nested field groups, keyed tabular form, comment lines, normative number grammar, canonical `key: []` empty arrays, removed key folding, `indentSize` option |
 | v3.2.0 | v3.3 | `\uXXXX` control-character escapes, empty-array decoding (`[]`, `key: []`), strict rejection of `[03]` and duplicate keys, number canonical range, quoted-key colon fix, validation API |
 | v3.1.0 | v3.0 | toJSON() method support, negative leading zeros fix |
 | v3.0.0 | v3.0 | List-item objects with tabular first field use depth +2 for rows |
@@ -352,12 +415,16 @@ For format details and token efficiency analysis, see the [TOON Specification](h
 - Key-value pairs with colons
 - Indentation-based nesting (2 spaces by default)
 - Empty objects shown as `key:`
+- Objects whose values share one uniform shape use the keyed tabular form `key[2:]{a,b}:`
+- Dotted keys such as `user.name` are single literal keys; the dot has no structure
 
 ### Arrays
 
 - **Primitives**: Inline format with length `tags[3]: a,b,c`
-- **Uniform objects**: Tabular format with headers `items[2]{sku,qty}: A1,2`
+- **Uniform objects**: Tabular format with headers `items[2]{sku,qty}:` and one row per element
+- **Uniform objects with object columns**: Tabular format with nested field groups `items[2]{sku,dims{w,h}}:`
 - **Mixed/non-uniform**: List format with hyphens
+- **Empty**: `key: []` in a field, `[]` at the root
 
 ### Indentation
 
@@ -378,6 +445,17 @@ echo Toon::encode($data);    // "123": value (quoted as string)
 ```
 
 The library handles this by quoting numeric keys when encoding.
+
+### Empty Arrays and Empty Objects
+
+PHP represents both `[]` and `{}` as an empty array, so the encoder cannot tell them apart. An empty PHP array is treated as an empty **array** everywhere:
+
+```php
+echo Toon::encode([]);                // []
+echo Toon::encode(['items' => []]);   // items: []
+```
+
+Both forms decode back to an empty PHP array, so round-tripping is unaffected.
 
 ## Use Cases
 

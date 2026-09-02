@@ -34,7 +34,7 @@ final class EdgeCasesExtendedTest extends TestCase
         ];
 
         $result = Toon::encode($data);
-        $this->assertStringContainsString('inner[0]:', $result);
+        $this->assertStringContainsString('inner: []', $result);
     }
 
     public function test_deeply_nested_empty_objects(): void
@@ -48,7 +48,7 @@ final class EdgeCasesExtendedTest extends TestCase
         ];
 
         $result = Toon::encode($data);
-        $this->assertStringContainsString('level3[0]:', $result);
+        $this->assertStringContainsString('level3: []', $result);
     }
 
     public function test_mixed_array_with_primitives_and_objects(): void
@@ -259,8 +259,8 @@ final class EdgeCasesExtendedTest extends TestCase
         $data = [];
 
         $result = Toon::encode($data);
-        // Empty array at root should produce nothing
-        $this->assertEquals('', $result);
+        // §9.1: an empty array at the root is the literal "[]"
+        $this->assertEquals('[]', $result);
     }
 
     public function test_special_float_values_in_arrays(): void
@@ -342,7 +342,7 @@ final class EdgeCasesExtendedTest extends TestCase
     {
         // indent 0 cannot represent nesting and is rejected at construction (§12).
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Indent must be a positive integer (at least 1)');
+        $this->expectExceptionMessage('Indent size must be a positive integer (at least 1)');
         new EncodeOptions(indent: 0);
     }
 

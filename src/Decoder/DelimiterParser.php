@@ -13,7 +13,9 @@ final class DelimiterParser
      */
     public static function split(string $input, string $delimiter = ',', int $lineNumber = 0): array
     {
-        $input = trim($input);
+        // §12: token trimming is exactly U+0020. Any other whitespace - notably
+        // HTAB outside its delimiter role - is part of the token.
+        $input = trim($input, ' ');
         if ($input === '') {
             return [];
         }
@@ -66,12 +68,8 @@ final class DelimiterParser
 
     private static function trimUnquoted(string $value): string
     {
-        $trimmed = trim($value);
-        if (strlen($trimmed) >= 2 && $trimmed[0] === '"' && substr($trimmed, -1) === '"') {
-            return $trimmed;
-        }
-
-        return $trimmed;
+        // §12: exactly U+0020, no other characters.
+        return trim($value, ' ');
     }
 
     public static function isArrayHeader(string $line): bool

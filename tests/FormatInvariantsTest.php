@@ -75,7 +75,7 @@ final class FormatInvariantsTest extends TestCase
     {
         $empty = [];
         $encoded = Toon::encode($empty);
-        $this->assertEquals('', $encoded, 'Empty object should produce empty string');
+        $this->assertEquals('[]', $encoded, 'Empty PHP array encodes as the empty-array literal (§9.1)');
     }
 
     public function test_single_value_on_single_line(): void

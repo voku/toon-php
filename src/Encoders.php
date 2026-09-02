@@ -14,8 +14,9 @@ final class Encoders
     /**
      * Encode any value to TOON format, writing output to a LineWriter.
      *
-     * Handles primitives, arrays, and objects. Automatically selects the most
-     * compact representation (inline arrays, tabular format, or list format).
+     * The form follows from the value's shape and position, never from preference
+     * (§1.4, §9): inline arrays, tabular arrays with nested field groups, keyed
+     * tabular objects, and list form where no tabular form applies.
      *
      * @param  mixed  $value  The value to encode
      * @param  int  $depth  Current indentation depth (default: 0)
@@ -29,14 +30,15 @@ final class Encoders
             return;
         }
 
-        // Handle empty arrays - treat as empty objects at root level
-        if (is_array($value) && empty($value)) {
-            // Empty arrays at root are treated as empty objects (output nothing)
-            return;
-        }
-
         // Handle arrays
         if (Normalize::isJsonArray($value)) {
+            // §9.1: an empty array at the root is the literal "[]" on its own line.
+            if ($value === []) {
+                $this->writer->push($depth, Constants::EMPTY_ARRAY);
+
+                return;
+            }
+
             $this->encodeArray($value, $depth);
 
             return;
@@ -44,6 +46,15 @@ final class Encoders
 
         // Handle objects
         if (Normalize::isJsonObject($value)) { // @phpstan-ignore staticMethod.impossibleType
+            // §9.5: a keyed-eligible root object collapses into a keyless keyed header.
+            $keyed = self::detectKeyedTabular($value);
+            if ($keyed !== null) {
+                $this->writer->push($depth, $this->formatKeyedHeader(count($value), $keyed, null));
+                $this->writeEntryRows($value, $keyed, $depth + 1);
+
+                return;
+            }
+
             $this->encodeObject($value, $depth);
 
             return;
@@ -69,6 +80,10 @@ final class Encoders
         $encodedKey = Primitives::encodeKey($key);
         $prefix = $isListItem ? Constants::LIST_ITEM_PREFIX : '';
 
+        // §10 depth model: a first field carried on a hyphen line at depth d stands
+        // at depth d+1, so a scope it opens has its content at depth d+2.
+        $childDepth = $isListItem ? $depth + 2 : $depth + 1;
+
         // Handle primitives inline
         if (Normalize::isJsonPrimitive($value)) {
             $encodedValue = Primitives::encodePrimitive($value, $this->options->delimiter);
@@ -81,10 +96,9 @@ final class Encoders
         if (Normalize::isJsonArray($value)) {
             $array = $value;
 
-            // Empty array
-            if (empty($array)) {
-                $inlineArray = $this->formatInlineArray($array, $key);
-                $this->writer->push($depth, $prefix.$inlineArray);
+            // §9.1: empty arrays in object-field position are "key: []".
+            if ($array === []) {
+                $this->writer->push($depth, $prefix.$encodedKey.Constants::COLON.Constants::SPACE.Constants::EMPTY_ARRAY);
 
                 return;
             }
@@ -99,41 +113,27 @@ final class Encoders
 
             // Array of arrays
             if (Normalize::isArrayOfArrays($array)) {
-                $delimiterKey = $this->getDelimiterKey($this->options->delimiter);
-                $this->writer->push($depth, $prefix.$encodedKey.Constants::OPEN_BRACKET.count($array).$delimiterKey.Constants::CLOSE_BRACKET.Constants::COLON);
+                $this->writer->push($depth, $prefix.$this->formatListHeader(count($array), $key));
                 foreach ($array as $item) {
-                    $inlineArray = $this->formatInlineArray($item);
-                    $this->writer->push($depth + 1, Constants::LIST_ITEM_PREFIX.$inlineArray);
+                    $this->writer->push($childDepth, Constants::LIST_ITEM_PREFIX.$this->formatInlineArray($item));
                 }
 
                 return;
             }
 
-            // Array of objects - try tabular format
-            if (Normalize::isArrayOfObjects($array)) {
-                $header = $this->detectTabularHeader($array);
-                if ($header !== null && $this->isTabularArray($array, $header)) {
-                    $this->writer->push($depth, $prefix.$this->formatArrayHeader(count($array), $header, $key));
-                    // v3.0 spec §10: When tabular array is first field of list-item, rows at depth +2
-                    $rowDepth = $isListItem ? $depth + 2 : $depth + 1;
-                    $this->writeTabularRows($array, $header, $rowDepth);
-
-                    return;
-                }
-
-                // Fall back to list format
-                $this->writer->push($depth, $prefix.$encodedKey.Constants::OPEN_BRACKET.count($array).Constants::CLOSE_BRACKET.Constants::COLON);
-                foreach ($array as $item) {
-                    $this->encodeObjectAsListItem($item, $depth + 1);
-                }
+            // Array of objects - tabular form is mandatory where detection succeeds (§9.3)
+            $fields = Fields::detect($array);
+            if ($fields !== null) {
+                $this->writer->push($depth, $prefix.$this->formatArrayHeader(count($array), $fields, $key));
+                $this->writeTabularRows($array, $fields, $childDepth);
 
                 return;
             }
 
-            // Mixed array - use list format
-            $this->writer->push($depth, $prefix.$encodedKey.Constants::OPEN_BRACKET.count($array).Constants::CLOSE_BRACKET.Constants::COLON);
+            // Otherwise list form (§9.4)
+            $this->writer->push($depth, $prefix.$this->formatListHeader(count($array), $key));
             foreach ($array as $item) {
-                $this->encodeMixedArrayItem($item, $depth + 1);
+                $this->encodeMixedArrayItem($item, $childDepth);
             }
 
             return;
@@ -143,9 +143,17 @@ final class Encoders
         if (Normalize::isJsonObject($value)) { // @phpstan-ignore staticMethod.impossibleType
             $object = $value;
 
+            // §9.5: keyed tabular form applies in object-field position.
+            $keyed = self::detectKeyedTabular($object);
+            if ($keyed !== null) {
+                $this->writer->push($depth, $prefix.$this->formatKeyedHeader(count($object), $keyed, $key));
+                $this->writeEntryRows($object, $keyed, $childDepth);
+
+                return;
+            }
+
             // Empty object
             if (empty($object)) { // @phpstan-ignore empty.variable
-
                 $this->writer->push($depth, $prefix.$encodedKey.Constants::COLON);
 
                 return;
@@ -153,7 +161,7 @@ final class Encoders
 
             // Non-empty object
             $this->writer->push($depth, $prefix.$encodedKey.Constants::COLON);
-            $this->encodeObject($object, $depth + 1);
+            $this->encodeObject($object, $childDepth);
 
             return;
         }
@@ -171,45 +179,32 @@ final class Encoders
 
         // Inline primitive array
         if (Normalize::isArrayOfPrimitives($array)) {
-            $inlineArray = $this->formatInlineArray($array);
-            $this->writer->push($depth, $inlineArray);
+            $this->writer->push($depth, $this->formatInlineArray($array));
 
             return;
         }
 
         // Array of arrays
         if (Normalize::isArrayOfArrays($array)) {
-            $delimiterKey = $this->getDelimiterKey($this->options->delimiter);
-            $this->writer->push($depth, Constants::OPEN_BRACKET.count($array).$delimiterKey.Constants::CLOSE_BRACKET.Constants::COLON);
+            $this->writer->push($depth, $this->formatListHeader(count($array), null));
             foreach ($array as $item) {
-                $inlineArray = $this->formatInlineArray($item); // @phpstan-ignore argument.type
-                $this->writer->push($depth + 1, Constants::LIST_ITEM_PREFIX.$inlineArray);
+                $this->writer->push($depth + 1, Constants::LIST_ITEM_PREFIX.$this->formatInlineArray($item)); // @phpstan-ignore argument.type
             }
 
             return;
         }
 
-        // Array of objects - try tabular format
-        if (Normalize::isArrayOfObjects($array)) {
-            $header = $this->detectTabularHeader($array);
-            if ($header !== null && $this->isTabularArray($array, $header)) {
-                $this->writer->push($depth, $this->formatArrayHeader(count($array), $header, null));
-                $this->writeTabularRows($array, $header, $depth + 1);
-
-                return;
-            }
-
-            // Fall back to list format
-            $this->writer->push($depth, Constants::OPEN_BRACKET.count($array).Constants::CLOSE_BRACKET.Constants::COLON);
-            foreach ($array as $item) {
-                $this->encodeObjectAsListItem($item, $depth + 1); // @phpstan-ignore argument.type
-            }
+        // Array of objects - tabular form is mandatory where detection succeeds (§9.3)
+        $fields = Fields::detect($array);
+        if ($fields !== null) {
+            $this->writer->push($depth, $this->formatArrayHeader(count($array), $fields, null));
+            $this->writeTabularRows($array, $fields, $depth + 1);
 
             return;
         }
 
-        // Mixed array - use list format
-        $this->writer->push($depth, Constants::OPEN_BRACKET.count($array).Constants::CLOSE_BRACKET.Constants::COLON);
+        // Otherwise list form (§9.4)
+        $this->writer->push($depth, $this->formatListHeader(count($array), null));
         foreach ($array as $item) {
             $this->encodeMixedArrayItem($item, $depth + 1);
         }
@@ -242,99 +237,98 @@ final class Encoders
     }
 
     /**
-     * Format a tabular array header with field declarations.
+     * Format a header for an array in list form: `key[N<delim?>]:` (§9.2, §9.4).
      *
-     * Field names are encoded as keys following the same quoting rules (§7.3).
+     * Every header declares the document delimiter as its active delimiter (§11.1).
+     */
+    private function formatListHeader(int $length, ?string $key): string
+    {
+        $header = $key !== null ? Primitives::encodeKey($key) : '';
+
+        return $header
+            .Constants::OPEN_BRACKET.$length.$this->getDelimiterKey($this->options->delimiter).Constants::CLOSE_BRACKET
+            .Constants::COLON;
+    }
+
+    /**
+     * Format a tabular array header with its field list (§9.3).
      *
-     * @param  array<string>  $fields
+     * Field names are encoded as keys following the same quoting rules (§7.3), and a
+     * nested-uniform column carries its own nested field group.
+     *
+     * @param  array<int, array{name: string, children: array<int, mixed>|null}>  $fields
      * @param  string|null  $key  Optional key for the array
      */
     private function formatArrayHeader(int $length, array $fields, ?string $key = null): string
     {
-        $delimiterKey = $this->getDelimiterKey($this->options->delimiter);
+        $header = $key !== null ? Primitives::encodeKey($key) : '';
 
-        // Encode field names as keys
-        $quotedFields = array_map(
-            fn ($field) => Primitives::encodeKey($field),
-            $fields
-        );
-        $fieldsList = implode($this->options->delimiter, $quotedFields);
-
-        // Build header with optional key prefix
-        $header = '';
-        if ($key !== null) {
-            $header = Primitives::encodeKey($key);
-        }
-
-        return $header.Constants::OPEN_BRACKET.$length.$delimiterKey.Constants::CLOSE_BRACKET.Constants::OPEN_BRACE.$fieldsList.Constants::CLOSE_BRACE.Constants::COLON;
+        return $header
+            .Constants::OPEN_BRACKET.$length.$this->getDelimiterKey($this->options->delimiter).Constants::CLOSE_BRACKET
+            .Constants::OPEN_BRACE.Fields::render($fields, $this->options->delimiter).Constants::CLOSE_BRACE
+            .Constants::COLON;
     }
 
     /**
-     * @param  array<mixed>|null  $array
-     * @return array<string>|null
+     * Format a keyed tabular header: `key[N:<delim?>]{fields}:` (§6, §9.5).
+     *
+     * The colon immediately after the length marks the keyed form; N is the entry count.
+     *
+     * @param  array<int, array{name: string, children: array<int, mixed>|null}>  $fields
+     * @param  string|null  $key  Optional key for the object (omitted at the root)
      */
-    private function detectTabularHeader(?array $array): ?array
+    private function formatKeyedHeader(int $entryCount, array $fields, ?string $key): string
     {
-        if ($array === null || empty($array)) {
+        $header = $key !== null ? Primitives::encodeKey($key) : '';
+
+        return $header
+            .Constants::OPEN_BRACKET.$entryCount.Constants::COLON.$this->getDelimiterKey($this->options->delimiter).Constants::CLOSE_BRACKET
+            .Constants::OPEN_BRACE.Fields::render($fields, $this->options->delimiter).Constants::CLOSE_BRACE
+            .Constants::COLON;
+    }
+
+    /**
+     * Keyed tabular detection (§9.5): at least two entries, every entry value a
+     * non-empty object, all entry values sharing one uniform shape.
+     *
+     * @param  array<string, mixed>  $object
+     * @return array<int, array{name: string, children: array<int, mixed>|null}>|null
+     */
+    private static function detectKeyedTabular(array $object): ?array
+    {
+        if (count($object) < 2) {
             return null;
         }
 
-        $firstKey = array_key_first($array);
-        $firstObject = $array[$firstKey];
-        if (! Normalize::isJsonObject($firstObject)) {
-            return null;
-        }
-
-        return array_keys($firstObject);
+        return Fields::detect(array_values($object));
     }
 
     /**
      * @param  array<mixed>  $array
-     * @param  array<string>  $expectedFields
-     */
-    private function isTabularArray(array $array, array $expectedFields): bool
-    {
-        // Sort expected fields for comparison
-        $sortedExpected = $expectedFields;
-        sort($sortedExpected);
-
-        foreach ($array as $item) {
-            if (! Normalize::isJsonObject($item)) {
-                return false;
-            }
-
-            $keys = array_keys($item);
-            $sortedKeys = $keys;
-            sort($sortedKeys);
-
-            // Check if same set of keys (order doesn't matter)
-            if ($sortedKeys !== $sortedExpected) {
-                return false;
-            }
-
-            // All values must be primitives
-            foreach ($item as $value) {
-                if (! Normalize::isJsonPrimitive($value)) {
-                    return false;
-                }
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * @param  array<mixed>  $array
-     * @param  array<string>  $fields
+     * @param  array<int, array{name: string, children: array<int, mixed>|null}>  $fields
      */
     private function writeTabularRows(array $array, array $fields, int $depth): void
     {
         foreach ($array as $object) {
-            $values = [];
-            foreach ($fields as $field) {
-                $values[] = Primitives::encodePrimitive($object[$field], $this->options->delimiter); // @phpstan-ignore offsetAccess.nonOffsetAccessible
-            }
-            $this->writer->push($depth, implode($this->options->delimiter, $values));
+            $cells = Fields::cells($fields, $object, $this->options->delimiter);
+            $this->writer->push($depth, implode($this->options->delimiter, $cells));
+        }
+    }
+
+    /**
+     * Write one `entrykey: c1<delim>c2…` line per entry, in encounter order (§9.5).
+     *
+     * @param  array<string, mixed>  $object
+     * @param  array<int, array{name: string, children: array<int, mixed>|null}>  $fields
+     */
+    private function writeEntryRows(array $object, array $fields, int $depth): void
+    {
+        foreach ($object as $entryKey => $entryValue) {
+            $cells = Fields::cells($fields, $entryValue, $this->options->delimiter);
+            $this->writer->push(
+                $depth,
+                Primitives::encodeKey((string) $entryKey).Constants::COLON.Constants::SPACE.implode($this->options->delimiter, $cells)
+            );
         }
     }
 
@@ -344,22 +338,21 @@ final class Encoders
     private function encodeObjectAsListItem(array $object, int $depth): void
     {
         $keys = array_keys($object);
-        if (empty($keys)) {
+        if ($keys === []) {
             // §10: an empty-object list item is a bare "-" (no trailing space, §12).
             $this->writer->push($depth, Constants::LIST_ITEM_MARKER);
 
             return;
         }
 
-        // First key-value pair always on the marker line
+        // §10: the first field in encounter order always sits on the hyphen line.
         $firstKey = $keys[0];
-        $this->encodeKeyValuePair($firstKey, $object[$firstKey], $depth, true);
+        $this->encodeKeyValuePair((string) $firstKey, $object[$firstKey], $depth, true);
 
-        // Remaining properties indented
+        // Remaining fields sit at depth +1 under the hyphen line.
         for ($i = 1; $i < count($keys); $i++) {
             $key = $keys[$i];
-            $value = $object[$key];
-            $this->encodeKeyValuePair($key, $value, $depth + 1);
+            $this->encodeKeyValuePair((string) $key, $object[$key], $depth + 1);
         }
     }
 
@@ -375,15 +368,17 @@ final class Encoders
 
         // Arrays
         if (Normalize::isJsonArray($item)) {
+            // §9.2: the "key: []" field form does not apply to list items; an empty
+            // inner array stays "- [0]:".
             if (Normalize::isArrayOfPrimitives($item)) {
-                $inlineArray = $this->formatInlineArray($item);
-                $this->writer->push($depth, Constants::LIST_ITEM_PREFIX.$inlineArray);
+                $this->writer->push($depth, Constants::LIST_ITEM_PREFIX.$this->formatInlineArray($item));
 
                 return;
             }
 
-            // Complex array
-            $this->writer->push($depth, Constants::LIST_ITEM_PREFIX.Constants::OPEN_BRACKET.count($item).Constants::CLOSE_BRACKET.Constants::COLON);
+            // §9.4: a nested array of objects or non-uniform array opens a list scope
+            // on the hyphen line; tabular form is unavailable in this position.
+            $this->writer->push($depth, Constants::LIST_ITEM_PREFIX.$this->formatListHeader(count($item), null));
             foreach ($item as $subItem) {
                 $this->encodeMixedArrayItem($subItem, $depth + 1);
             }

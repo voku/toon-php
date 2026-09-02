@@ -25,7 +25,7 @@ final class Toon
         $normalizedValue = Normalize::normalizeValue($value);
 
         // Create line writer
-        $indentString = str_repeat(Constants::SPACE, $options->indent);
+        $indentString = str_repeat(Constants::SPACE, $options->indentSize);
         $writer = new LineWriter($indentString);
 
         // Create encoder and encode the value

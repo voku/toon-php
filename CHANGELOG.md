@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **TOON Specification v4.1 compliance** (upstream advanced v3.3 → v4.1). See `docs/SPEC.md` and `docs/CHANGELOG.md`.
+- **Nested field groups (§9.3)**: a tabular column whose values are uniform non-empty objects is declared as a nested field group — `forecast[3]{day,temp{min,max},condition}:` — while rows stay flat, delimiter-separated primitives laid out by a depth-first walk. Groups nest without a depth cap. An array that v3 dropped to list form because one value was an object now stays tabular.
+- **Keyed tabular form (§9.5)**: an object with at least two entries whose values are uniform non-empty objects collapses into `stations[3:]{lat,lon,active}:` with one `entrykey: cells` row per entry. It applies in object-field position and at the document root, and its header may carry nested field groups. Array elements are anonymous and never use the keyed form.
+- **Comment lines (§5.1)**: a line whose first character after zero or more spaces is `#` is a comment, removed by the decoder in a lexical pre-pass in strict and non-strict mode alike. Comments never terminate a scope and never count toward a declared length. There is no inline or trailing comment form, and encoders never emit one.
+- **`indentSize` option (§13)**: `EncodeOptions` and `DecodeOptions` accept `indentSize`, with `withIndentSize()` alongside the existing `withIndent()`. The former `indent` name remains as a deprecated alias.
+- **Byte-order mark and CRLF handling (§12)**: a single leading U+FEFF is removed before any processing, a trailing CR is excluded from each line's content, and trailing spaces are stripped before line classification.
+- Spec conformance tests in `tests/Spec/Version4ComplianceTest.php`.
+
+### Changed
+
+- **Empty arrays (§9.1)**: the encoder now emits `key: []` in object-field position and `[]` at the root. The legacy `key[0]:` / `[0]:` header forms are no longer emitted; the decoder still accepts them. An inner list-item array keeps `- [0]:` per §9.2. Because PHP represents both `[]` and `{}` as an empty array, `Toon::encode([])` now returns `[]` rather than an empty document.
+- **List-item depth model (§10)**: a scope opened by the field carried on a list-item hyphen line now has its content at depth +2. Previously a nested object or nested list array as the first field was emitted at depth +1, which collided with the object's sibling fields and did not round-trip.
+- **Delimiter declaration (§11.1)**: every header now declares the document delimiter, including list-form headers, which previously omitted the delimiter symbol.
+- **Number grammar (§4)**: an unquoted token decodes as a number only when it matches `/^-?[0-9]+(?:\.[0-9]+)?(?:e[+-]?[0-9]+)?$/i` without forbidden leading zeros. `.5`, `1.`, `+5`, `Infinity`, `NaN`, `0x10` and `1_000` now decode as strings; the decision is no longer delegated to PHP's wider `is_numeric()`. On the encode side, the numeric-like quoting trigger covers leading-plus forms, so `"+1"` is emitted quoted.
+- **`#` quoting (§7.2)**: strings that equal or start with `#` are always quoted, so encoder output can never be read back as a comment line.
+- **Unquoted key tokens (§7.4)**: the decoder accepts any token before the first unquoted colon as a literal key, so `foo-bar: 1`, `2key`, and `5]: x` are valid input in strict mode too.
+- **Quoted-token boundary (§7.4)**: a token whose first character is `"` must end at its closing quote; any character after it is an error in both modes.
+- **Object field values (§11.2)**: the entire post-colon token is parsed as a single value. `nums: [3]: 1,2,3` is a key-value line whose value is the string `[3]: 1,2,3`; the header form is `nums[3]: 1,2,3`.
+- **Keyless header positions (§6, §14.2)**: a keyless non-keyed header is valid only as the document's root header or as a list item, and a keyless fields-bearing header only at the root. `key:` followed by an indented `[N]:` is now a strict-mode error rather than a nested array.
+- **Non-strict count and width tolerance (§14.1)**: a declared `[N]` never terminates or truncates a scope. On a width mismatch the §9.3 field walk applies unchanged — a leaf field with no remaining cell is absent from the decoded object, and surplus cells contribute nothing. Width mismatches are no longer errors when `strict: false`.
+- A bare `{fields}:` header without a bracket segment is no longer recognized; §6 requires every header to carry one.
+
+### Fixed
+
+- **Round-trip for a nested object as a list item's first field**: `[[{'a' => ['b' => 1], 'c' => 2]]` previously encoded `b: 1` at the same depth as the sibling field `c`, so it decoded back as a sibling rather than a child. The §10 depth model fixes this.
+
+### Security
+
+- **Ill-formed UTF-8 (§4, §14.2)**: byte input that is not well-formed UTF-8 is rejected in strict mode instead of being silently substituted with U+FFFD.
+- **Unpaired surrogates (§3)**: the encoder rejects host strings that are not well-formed UTF-8 rather than emitting them or substituting U+FFFD.
+- **Prototype-key safety (§15)**: documented — PHP arrays have no prototype chain, so `__proto__`, `constructor` and `prototype` decode as ordinary own entries with no special handling.
+
+### Removed
+
+- **Key folding and path expansion (§1.9, §13.4, §14.3 of the v3 spec)**: removed from the specification in v4.0. The library never implemented them, so no API changes. Dotted keys such as `data.meta.items` remain single literal keys.
+
 ## [3.2.1] - 2026-07-08
 
 ### Fixed

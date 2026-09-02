@@ -141,6 +141,8 @@ final class Primitives
      */
     public static function encodeKey(string $key): string
     {
+        self::assertRepresentable($key);
+
         // Keys are unquoted if they match the identifier pattern: ^[A-Za-z_][\w.]*$
         if (preg_match('/^[A-Za-z_][\w.]*$/', $key)) {
             return $key;
@@ -159,11 +161,32 @@ final class Primitives
      */
     public static function encodeStringLiteral(string $value, string $delimiter, bool $isKey = false): string
     {
+        self::assertRepresentable($value);
+
         if (self::isSafeUnquoted($value, $delimiter, $isKey)) {
             return $value;
         }
 
         return Constants::DOUBLE_QUOTE.self::escapeString($value).Constants::DOUBLE_QUOTE;
+    }
+
+    /**
+     * Ensure a host string is representable in TOON (§3).
+     *
+     * Host strings MUST be sequences of Unicode scalar values. A PHP string that is
+     * not well-formed UTF-8 – which is how an unpaired surrogate (U+D800-U+DFFF)
+     * reaches the encoder – is not representable: encoders MUST error rather than
+     * emit it or silently substitute U+FFFD.
+     *
+     * @throws InvalidArgumentException If the string is not well-formed UTF-8
+     */
+    private static function assertRepresentable(string $value): void
+    {
+        if ($value !== '' && ! mb_check_encoding($value, 'UTF-8')) {
+            throw new InvalidArgumentException(
+                'String is not representable in TOON: input is not well-formed UTF-8 (unpaired surrogate or invalid byte sequence)'
+            );
+        }
     }
 
     /**
@@ -230,13 +253,15 @@ final class Primitives
             return false;
         }
 
-        // Numeric patterns need quoting (including octal, hex, and binary patterns)
-        if (is_numeric($value) || preg_match('/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/', $value) || preg_match('/^0[0-7]+$/', $value)) {
+        // Numeric-like strings need quoting (§7.2). The trigger covers leading-plus
+        // forms, so "+1" is emitted quoted and never reads back as a number.
+        if (preg_match('/^[+-]?[0-9]+(?:\.[0-9]+)?(?:e[+-]?[0-9]+)?$/i', $value)) {
             return false;
         }
 
-        // Hex and binary patterns need quoting
-        if (preg_match('/^(?:0x[0-9A-Fa-f]+|0b[01]+)$/', $value)) {
+        // Octal, hex and binary lookalikes are strings under the §4 number grammar,
+        // but quoting them keeps the intent unambiguous for human readers.
+        if (preg_match('/^0[0-7]+$/', $value) || preg_match('/^(?:0x[0-9A-Fa-f]+|0b[01]+)$/', $value)) {
             return false;
         }
 
@@ -265,6 +290,12 @@ final class Primitives
 
         // Strings starting with hyphens (list markers) need quoting
         if (str_starts_with($value, Constants::LIST_ITEM_MARKER)) {
+            return false;
+        }
+
+        // §5.1/§7.2: a "#"-leading string would read back as a comment line, so it
+        // is always quoted; encoder output never contains a comment line.
+        if (str_starts_with($value, Constants::COMMENT_MARKER)) {
             return false;
         }
 

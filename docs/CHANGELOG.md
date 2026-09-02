@@ -4,6 +4,62 @@ All notable changes to the TOON specification will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). The project follows the MAJOR.MINOR versioning policy described in [VERSIONING.md](./VERSIONING.md).
 
+## [4.1] - 2026-07-26
+
+### Added
+
+- §7.4: a token beginning with `"` MUST end at its closing quote, in strict and non-strict mode alike.
+- §12: a leading U+FEFF is a byte-order mark and MUST be removed before processing; trailing spaces are stripped before line classification.
+- §14.1: a declared `[N]` never terminates or truncates a scope – the non-strict counterpart to the count and width checks.
+- §9.4: scope termination for arrays in list form, matching the rules §9.3 and §9.5 already carried.
+- §3, §16: encoders MUST reject host strings containing unpaired surrogates; keys that differ only in Unicode normalization form are distinct.
+- Conformance fixtures for every rule above.
+
+### Changed
+
+- Encoders lost their remaining latitude over form. Tabular form is mandatory wherever detection succeeds and the position permits a fields-bearing header (§9.3); keyed tabular form applies in object-field and root positions but not in a column (§9.5); empty arrays emit `key: []` and `[]`, never the legacy `key[0]:` (§9.1); a list-item object's first field sits on the hyphen line (§10); every header declares the document delimiter (§11.1). Decoders still accept everything a v4.0 encoder could emit.
+- The decoder key-token rule now covers keyed entry rows, unquoted header keys, and unquoted field names, completing the v4.0 change recorded at §7.4. Token trimming covers key tokens as well as value tokens (§12).
+- Errors that were unstated or strict-only are now settled: a scalar line outside root primitive position errors in both modes (§5.2); whitespace between a key and its bracket segment is a header syntax error, strict error and non-strict fall-through (§6); a repeated field name is diagnosed from the header line alone, independent of the declared count and of any rows (§9.3); and four §14 conditions are marked "(any mode)", having always been unqualified MUSTs.
+- §9.5 heading renamed to "Objects of Uniform Objects – Keyed Tabular Form", moving its anchor to `#95-objects-of-uniform-objects--keyed-tabular-form`. Terminology: `keyed form` → `keyed tabular form`, `brace group` → `field list`, `array span` → `header span`.
+- Duplicated normative text removed so each rule is stated once. Appendix D (Document Changelog) retired; the former Appendices E and F are now D and E.
+- VERSIONING.md: encoder-side tightening and changes to encoder-unreachable documents are classified MINOR.
+
+### Compatibility
+
+Two changes alter decoder behavior: §6 rejects whitespace between a key and its bracket segment in strict mode, and §12 removes a leading U+FEFF. No conforming v4.0 encoder could emit either input – §7.3 quotes any key containing a space or bracket, and encoders never emit a byte-order mark – so no round-trip is affected. Both are MINOR under the encoder-unreachability rule in [VERSIONING.md](./VERSIONING.md).
+
+The option renamed from `indent` to `indentSize` in spec 3.3 is now named `indentSize` throughout. Implementations that still read `indent` SHOULD accept `indentSize` and MAY keep `indent` as a deprecated alias.
+
+## [4.0] - 2026-07-22
+
+### Breaking Changes
+
+- §5.1: a line whose first non-space character is `#` is a comment line, removed by decoders in a lexical pre-pass before every other rule. Comment lines never terminate scopes and MUST NOT be emitted by encoders. This is the only v4 change to the decoded meaning of conforming v3 output – an unquoted `#`-leading tabular first cell, a `#`-leading root scalar, or a `#`-leading key now reads as a comment. Scan stored v3 documents for `/^ *#/`; re-encoding under v4 quotes such strings (§7.2), which decodes identically under both versions.
+- §8 / §14.2: an indentation depth jump is a strict-mode error. Conforming encoders never produced one, but a hand-authored v3 document that skips a level now fails; re-indent it, or decode once in non-strict mode and re-encode.
+
+### Added
+
+- §6 / §9.3: nested field groups in tabular headers – `orders[2]{id,customer{name,country},total}:` declares a nested-uniform column while rows stay flat delimiter-separated primitives, laid out by a depth-first walk with no depth cap. Output is byte-identical to v3 wherever no group applies, and strict v3 decoders fail closed on the new header. Per RFC [#46](https://github.com/toon-format/spec/issues/46) (thanks @Turtle-dev3).
+- §6 / §9.5: keyed tabular form – an object with at least two entries whose values are uniform non-empty objects collapses into `users[2:]{age,city}:` with one `entrykey: cells` row per entry, and `[N:]{…}:` at the root. Strict v3 decoders fail closed; non-strict ones mis-decode it silently, so upgrade decoders before encoders. Per RFC [#57](https://github.com/toon-format/spec/issues/57), with prior proposals in [#32](https://github.com/toon-format/spec/issues/32) and [#45](https://github.com/toon-format/spec/issues/45) (thanks @cstroliadavis, @metafishTV).
+- §4: a normative decoder number grammar – an unquoted token decodes as a number iff it matches `/^-?[0-9]+(?:\.[0-9]+)?(?:e[+-]?[0-9]+)?$/i` without forbidden leading zeros, so `.5`, `1.`, `+5`, `Infinity`, `NaN`, `0x10`, and `1_000` are strings and decoders MUST NOT delegate to wider host parsers. Rejecting out-of-range tokens joins the permitted documented policies. Includes the leading-plus cases from [#52](https://github.com/toon-format/spec/pull/52) (thanks @montanaflynn).
+- §15: prototype-key safety – `__proto__`, `constructor`, and `prototype` are ordinary own entries in every key position, and decoding MUST NOT mutate the host object model.
+- §5.2: normative line classification by precedence – blank, list item, array header, key-value, row, scalar. A line whose first unquoted colon precedes any unquoted `[` is a key-value line, never a header.
+- §7.2 / §15: string values equal to or starting with `#` MUST be quoted, so encoder output never contains a line that reads as a comment.
+- §13: implementations SHOULD declare the specification version they target (e.g., `toon-spec: 4.0`).
+
+### Changed
+
+- §12: token trimming is a MUST and is exactly U+0020, closing the divergence between ASCII trimming and host `trim()` (discussion [#56](https://github.com/toon-format/spec/discussions/56), thanks @liquidaty).
+- §7.4: the unquoted key is everything before the first unquoted colon, so strict decoders accept keys outside §7.3's encoder pattern (`foo-bar`, `2key`); they likewise accept unquoted values that encoders were required to quote (`key: -x` → string `-x`).
+- §2: tabular-encoded array elements compare after reordering to the header's field order, resolving a round-trip requirement that was unsatisfiable as written.
+- §4 / §14.2: byte-input decoders MUST decode UTF-8 and, in strict mode, MUST error on ill-formed sequences instead of substituting U+FFFD. Host-string decoders are out of scope.
+- §6 / §14.2: `key[]:` is a malformed bracket segment – strict error, non-strict key-value fall-through – and the `key: []` empty-array form is unaffected. §9.2 / §9.4: decoders accept `- []` as an empty inner-array list item, though encoders still emit `- [0]:`.
+- §7.2: the numeric-like quoting trigger covers leading-plus forms, so `"+1"` is emitted quoted.
+
+### Removed
+
+- §1.9, §13.4, §14.3: key folding and path expansion, entirely – the `keyFolding` and `flattenDepth` encoder options, the `expandPaths` decoder option, and the related terms, checklist items, examples, and fixtures. Dotted keys remain single literal keys unconditionally (§8), which is what v3 did by default, so no document produced without folding is affected. Re-hydrate anything encoded with `keyFolding: "safe"` by decoding it once with a v3 decoder using `expandPaths: "safe"`, then re-encoding.
+
 ## [3.3] - 2026-05-21
 
 ### Added
@@ -25,36 +81,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
-- §8 / §14.4: duplicate sibling keys at the same depth – strict mode MUST error; non-strict mode MUST apply last-write-wins (LWW) in document order silently.
-- §14.2: header delimiter mismatch (bracket-segment delimiter ≠ field-list delimiter) is a strict-mode header syntax error, independent of row width/count checks.
-- §14.2: enumerated malformed bracket lengths, intervening content, multiple root primitives, and the indentation/blank-line invariants previously split across the old Indentation Errors and Structural Errors subsections.
-- §9.4: explicit form for nested arrays of objects or non-uniform arrays as list items (`- [M<delim?>]:` followed by items at depth +1 relative to the hyphen line; tabular form is unavailable in this position, encoders MUST use the expanded list form).
+- §8 / §14.4: duplicate sibling keys at the same depth – strict mode MUST error, non-strict mode MUST apply last-write-wins in document order, silently.
+- §14.2: a header whose bracket-segment delimiter differs from its field-list delimiter is a strict-mode syntax error, independent of row width and count checks.
+- §9.4: an explicit form for nested arrays of objects or non-uniform arrays as list items – `- [M<delim?>]:` with items at depth +1 relative to the hyphen line. Tabular form is unavailable in this position.
 
 ### Changed
 
-- §14: collapsed the former Indentation Errors and Structural Errors subsections into §14.2; Path Expansion Conflicts moved to §14.3.
-- Interoperability and Mappings content merged into the Introduction; IANA Considerations, Versioning and Extensibility, and Intellectual Property Considerations now occupy §17–§19.
-- Versioning and Extensibility (§18) and Intellectual Property Considerations (§19) relocated above the appendices.
-- §6: strict header parsing rejects invalid bracket lengths, leading-zero lengths (e.g., `[03]`), and any content between the bracket segment, optional fields segment, and colon. Non-strict mode MAY fall through to key-value parsing.
-- §6: the "one space after colon" rule is encoder-only; decoder tolerance is governed by §12.
-- §6: decoders split using the declared delimiter; non-active delimiter characters appearing unquoted in row content are literal data and MUST NOT be re-interpreted as structural delimiters.
-- §9.3 tabular detection: arrays containing any empty object `{}` MUST NOT use tabular form (encoded via §9.4 expanded list instead).
-- §7.1 ABNF: `unescaped-char` extended to include U+0009 (HTAB), expressing decoder leniency only; encoders MUST emit `\t` per the escape table.
-- §7.1 escape table (Supplementary row): clarify that supplementary scalars are emitted/accepted as literal UTF-8 and that surrogate `\uXXXX` escapes are not combined.
-
-### Fixed
-
-- §12: clarified that whitespace-only lines MAY be treated as blank regardless of leading-space count.
-- Appendix B.2: corrected array-header parsing sketch to identify the optional (possibly quoted) key before locating the bracket segment.
-- §6 and §7.1 ABNF: defined the previously-undefined `quoted-key` (§6), `quoted-char`, and `unescaped-char` (§7.1) productions; literal codepoints in quoted keys were ungrammatical under the prior `*escaped-char` rule.
-- §7.1 escape table: made first-match precedence explicit.
-- §15: downstream-consumer informative note demoted from SHOULD to advisory language.
-- Appendix A: `"x-items"[2]:` example reshaped to non-uniform objects (previous example violated §9.3).
+- §6: strict header parsing rejects invalid bracket lengths, leading-zero lengths (`[03]`), and any content between the bracket segment, field list, and colon; non-strict mode MAY fall through to key-value parsing. Decoders split on the declared delimiter only – other delimiter characters appearing unquoted in row content are literal data. The one-space-after-colon rule is encoder-only; decoder tolerance is governed by §12.
+- §9.3: an array containing any empty object MUST NOT use tabular form.
+- §7.1: the escape table gains explicit first-match precedence; supplementary scalars are emitted and accepted as literal UTF-8, never combined into surrogate `\uXXXX` escapes; `unescaped-char` admits U+0009, expressing decoder leniency only.
+- §6 / §7.1: defined the previously undefined `quoted-key`, `quoted-char`, and `unescaped-char` productions – literal code points in quoted keys were ungrammatical under the prior `*escaped-char` rule.
+- §12: whitespace-only lines MAY be treated as blank regardless of leading-space count.
 
 ### Removed
 
-- §16 ISO 8601 date SHOULD (out of scope; date encoding is application-level).
-- "TOON Core Profile" meta-section (cross-reference only; the full normative subset is §1–§16).
+- §16: the ISO 8601 date SHOULD – date encoding is application-level.
 
 ## [3.1] - 2026-05-18
 

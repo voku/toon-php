@@ -313,7 +313,7 @@ final class DelimitersTest extends TestCase
         $options = new EncodeOptions(delimiter: "\t");
         // Document delimiter is tab, so inner arrays also use tab
         // The comma in "a,b" doesn't need quoting because tab is the active delimiter
-        $expected = "outer[2]:\n  - inner[2\t]: a,b\tc\n  - inner[2\t]: d\te";
+        $expected = "outer[2\t]:\n  - inner[2\t]: a,b\tc\n  - inner[2\t]: d\te";
         $this->assertEquals($expected, Toon::encode($input, $options));
     }
 }

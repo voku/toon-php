@@ -139,11 +139,26 @@ final class StrictModeTest extends TestCase
 
     public function test_lenient_mode_accepts_tabular_width_mismatch(): void
     {
+        // §14.1 non-strict counterpart: a width mismatch is not an error. The §9.3
+        // field walk applies unchanged, so a leaf field with no remaining cell is
+        // absent from the decoded object.
         $options = DecodeOptions::lenient();
 
-        // This should error even in lenient mode
-        $this->expectException(CountMismatchException::class);
-        Toon::decode("[1]{id,name,email}:\n  1,Alice", $options);
+        $this->assertSame(
+            [['id' => 1, 'name' => 'Alice']],
+            Toon::decode("[1]{id,name,email}:\n  1,Alice", $options)
+        );
+    }
+
+    public function test_lenient_mode_ignores_surplus_tabular_cells(): void
+    {
+        // §14.1: surplus cells contribute nothing to the decoded element.
+        $options = DecodeOptions::lenient();
+
+        $this->assertSame(
+            [['id' => 1]],
+            Toon::decode("[1]{id}:\n  1,2,3", $options)
+        );
     }
 
     // ========================================
@@ -229,7 +244,7 @@ final class StrictModeTest extends TestCase
 
     public function test_strict_mode_blank_line_after_list_items_before_sibling(): void
     {
-        $toon = "nums:\n  [2]:\n    - 1\n    - 2\n\nname: test";
+        $toon = "nums[2]:\n  - 1\n  - 2\n\nname: test";
 
         // This should be OK - blank line is OUTSIDE the array
         $result = Toon::decode($toon);
@@ -262,7 +277,7 @@ final class StrictModeTest extends TestCase
 
     public function test_strict_mode_blank_line_after_tabular_rows_before_sibling(): void
     {
-        $toon = "users:\n  [2]{id,name}:\n    1,Alice\n    2,Bob\n\ncount: 2";
+        $toon = "users[2]{id,name}:\n  1,Alice\n  2,Bob\n\ncount: 2";
 
         // This should be OK - blank line is OUTSIDE the array
         $result = Toon::decode($toon);
@@ -283,7 +298,7 @@ final class StrictModeTest extends TestCase
         $this->expectException(StrictModeException::class);
         $this->expectExceptionMessage('Blank lines not allowed');
 
-        Toon::decode("data:\n  [2]:\n    - a\n\n    - b");
+        Toon::decode("data[2]:\n  - a\n\n  - b");
     }
 
     public function test_strict_mode_blank_line_in_deeply_nested_array(): void
@@ -291,7 +306,7 @@ final class StrictModeTest extends TestCase
         $this->expectException(StrictModeException::class);
         $this->expectExceptionMessage('Blank lines not allowed');
 
-        Toon::decode("root:\n  data:\n    [2]:\n      - x\n\n      - y");
+        Toon::decode("root:\n  data[2]:\n    - x\n\n    - y");
     }
 
     public function test_strict_mode_accepts_blank_line_between_object_fields(): void
@@ -476,7 +491,7 @@ final class StrictModeTest extends TestCase
         $this->expectException(CountMismatchException::class);
         $this->expectExceptionMessage('expected 3, got 2');
 
-        Toon::decode("data:\n  [3]: a,b");
+        Toon::decode('data[3]: a,b');
     }
 
     public function test_strict_mode_preserves_error_line_numbers(): void

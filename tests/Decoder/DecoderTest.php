@@ -6,6 +6,7 @@ namespace HelgeSverre\Toon\Tests\Decoder;
 
 use HelgeSverre\Toon\DecodeOptions;
 use HelgeSverre\Toon\Exceptions\CountMismatchException;
+use HelgeSverre\Toon\Exceptions\DecodeException;
 use HelgeSverre\Toon\Exceptions\IndentationException;
 use HelgeSverre\Toon\Exceptions\SyntaxException;
 use HelgeSverre\Toon\Toon;
@@ -344,13 +345,25 @@ final class DecoderTest extends TestCase
 
     public function test_decode_inline_array_in_object(): void
     {
-        $toon = "nums: [3]: 1,2,3\nname: test";
+        // §6: the key's own bracket segment opens the header. A colon before the
+        // first unquoted "[" makes the line a key-value line instead (§5.2).
+        $toon = "nums[3]: 1,2,3\nname: test";
         $expected = [
             'nums' => [1, 2, 3],
             'name' => 'test',
         ];
 
         $this->assertEquals($expected, Toon::decode($toon));
+    }
+
+    public function test_decode_key_value_line_keeps_bracket_value_as_string(): void
+    {
+        // §5.2/§11.2: "nums: [3]: 1,2,3" is a key-value line, and the entire
+        // post-colon token decodes as one value.
+        $this->assertSame(
+            ['nums' => '[3]: 1,2,3'],
+            Toon::decode('nums: [3]: 1,2,3')
+        );
     }
 
     public function test_decode_inline_array_with_floats(): void
@@ -410,21 +423,33 @@ final class DecoderTest extends TestCase
 
     public function test_decode_list_array_missing_hyphen_throws(): void
     {
-        $this->expectException(SyntaxException::class);
-        $this->expectExceptionMessage('must start with hyphen');
+        // §9.4: a line at item depth that is not a list-item line ends the scope,
+        // so the declared length no longer matches the items actually present.
+        $this->expectException(CountMismatchException::class);
+        $this->expectExceptionMessage('expected 2, got 1');
 
         Toon::decode("[2]:\n  - a\n  b");
     }
 
     public function test_decode_list_array_in_object(): void
     {
-        $toon = "items:\n  [2]:\n    - apple\n    - banana\ncount: 2";
+        $toon = "items[2]:\n  - apple\n  - banana\ncount: 2";
         $expected = [
             'items' => ['apple', 'banana'],
             'count' => 2,
         ];
 
         $this->assertEquals($expected, Toon::decode($toon));
+    }
+
+    public function test_decode_rejects_keyless_header_in_object_field_position(): void
+    {
+        // §6/§14.2: a keyless header is valid only as the document's root header
+        // or (without a field list) as a list item.
+        $this->expectException(SyntaxException::class);
+        $this->expectExceptionMessage('Keyless header');
+
+        Toon::decode("items:\n  [2]:\n    - apple\n    - banana");
     }
 
     public function test_decode_list_array_with_null_values(): void
@@ -450,16 +475,13 @@ final class DecoderTest extends TestCase
         $this->assertEquals($expected, Toon::decode($toon));
     }
 
-    public function test_decode_tabular_array_without_length(): void
+    public function test_decode_rejects_tabular_header_without_bracket_segment(): void
     {
-        $toon = "{id,name}:\n  1,Alice\n  2,Bob\n  3,Charlie";
-        $expected = [
-            ['id' => 1, 'name' => 'Alice'],
-            ['id' => 2, 'name' => 'Bob'],
-            ['id' => 3, 'name' => 'Charlie'],
-        ];
+        // §6: every header carries a bracket segment; "{id,name}:" is a key-value
+        // line with the literal key "{id,name}", so its rows are structural errors.
+        $this->expectException(DecodeException::class);
 
-        $this->assertEquals($expected, Toon::decode($toon));
+        Toon::decode("{id,name}:\n  1,Alice\n  2,Bob\n  3,Charlie");
     }
 
     public function test_decode_tabular_array_with_mixed_types(): void
@@ -491,7 +513,7 @@ final class DecoderTest extends TestCase
 
     public function test_decode_tabular_array_in_object(): void
     {
-        $toon = "users:\n  [2]{id,name}:\n    1,Alice\n    2,Bob\ntotal: 2";
+        $toon = "users[2]{id,name}:\n  1,Alice\n  2,Bob\ntotal: 2";
         $expected = [
             'users' => [
                 ['id' => 1, 'name' => 'Alice'],
