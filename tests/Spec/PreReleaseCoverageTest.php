@@ -49,7 +49,6 @@ final class PreReleaseCoverageTest extends TestCase
             'dup keys in list-item object' => ["[1]:\n  - id: 1\n    id: 2"],
             'dup keyed inline arrays' => ["n[2]: 1,2\nn[2]: 3,4"],
             // malformed bracket keys (§6/§14.2)
-            'stray close bracket' => ['a]: x'],
             'non-numeric length' => ['foo[bar]: x'],
             'leading-zero length' => ['foo[03]: x'],
             'negative length' => ['foo[-1]: x'],
@@ -62,12 +61,14 @@ final class PreReleaseCoverageTest extends TestCase
         ];
     }
 
-    public function test_validate_accepts_over_indented_list_item_field(): void
+    public function test_validate_rejects_over_indented_list_item_field(): void
     {
-        // decode() tolerantly re-nests an over-indented field; validate() must agree.
+        // §14.2: a line deeper than its enclosing scope's content depth, whose
+        // preceding line did not open a scope, belongs to no scope. Strict mode
+        // errors; non-strict skips it, and validate() agrees with decode() in both.
         $toon = "[1]:\n  - id: 1\n      x: 2";
-        $this->assertTrue(Toon::validate($toon));
-        $this->assertSame([['id' => ['x' => 2]]], Toon::decode($toon));
+        $this->assertFalse(Toon::validate($toon));
+        $this->assertSame([['id' => 1]], Toon::decode($toon, DecodeOptions::lenient()));
     }
 
     public function test_validate_lenient_accepts_duplicate_keys(): void
@@ -132,7 +133,7 @@ final class PreReleaseCoverageTest extends TestCase
                 return 'ignored';
             }
         };
-        $this->assertSame('', Toon::encode($obj));
+        $this->assertSame('[]', Toon::encode($obj));
     }
 
     public function test_object_with_only_private_properties_encodes_empty(): void
@@ -141,7 +142,7 @@ final class PreReleaseCoverageTest extends TestCase
         {
             private int $hidden = 1;
         };
-        $this->assertSame('', Toon::encode($obj));
+        $this->assertSame('[]', Toon::encode($obj));
     }
 
     /**

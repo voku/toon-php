@@ -25,6 +25,12 @@ final class Constants
 
     public const CLOSE_BRACE = '}';
 
+    // Canonical empty-array literal (§9.1)
+    public const EMPTY_ARRAY = '[]';
+
+    // Comment marker: a line whose first non-space character is "#" (§5.1)
+    public const COMMENT_MARKER = '#';
+
     // Literals
     public const NULL_LITERAL = 'null';
 

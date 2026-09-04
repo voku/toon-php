@@ -96,10 +96,12 @@ final class TabularArraysTest extends TestCase
         $this->assertEquals($expected, Toon::encode($input));
     }
 
-    public function test_encode_list_format_with_nested_object(): void
+    public function test_encode_nested_uniform_column_uses_nested_field_group(): void
     {
+        // §9.3: a nested-uniform column is declared as a nested field group and the
+        // row stays a flat, delimiter-separated sequence of leaf values.
         $input = ['items' => [['id' => 1, 'nested' => ['x' => 1]]]];
-        $expected = "items[1]:\n  - id: 1\n    nested:\n      x: 1";
+        $expected = "items[1]{id,nested{x}}:\n  1,1";
         $this->assertEquals($expected, Toon::encode($input));
     }
 
@@ -120,7 +122,7 @@ final class TabularArraysTest extends TestCase
     public function test_encode_list_format_with_nested_array_of_arrays(): void
     {
         $input = ['items' => [['matrix' => [[1, 2], [3, 4]], 'name' => 'grid']]];
-        $expected = "items[1]:\n  - matrix[2]:\n    - [2]: 1,2\n    - [2]: 3,4\n    name: grid";
+        $expected = "items[1]:\n  - matrix[2]:\n      - [2]: 1,2\n      - [2]: 3,4\n    name: grid";
         $this->assertEquals($expected, Toon::encode($input));
     }
 
@@ -152,7 +154,7 @@ final class TabularArraysTest extends TestCase
                 'status' => 'active',
             ]],
         ];
-        $expected = "items[1]:\n  - users[2]:\n    - id: 1\n      name: Ada\n    - id: 2\n    status: active";
+        $expected = "items[1]:\n  - users[2]:\n      - id: 1\n        name: Ada\n      - id: 2\n    status: active";
         $this->assertEquals($expected, Toon::encode($input));
     }
 
@@ -173,7 +175,7 @@ final class TabularArraysTest extends TestCase
     public function test_encode_list_format_with_empty_array(): void
     {
         $input = ['items' => [['name' => 'test', 'data' => []]]];
-        $expected = "items[1]:\n  - name: test\n    data[0]:";
+        $expected = "items[1]:\n  - name: test\n    data: []";
         $this->assertEquals($expected, Toon::encode($input));
     }
 
@@ -188,7 +190,7 @@ final class TabularArraysTest extends TestCase
     public function test_encode_list_format_with_empty_array_first(): void
     {
         $input = ['items' => [['data' => [], 'name' => 'x']]];
-        $expected = "items[1]:\n  - data[0]:\n    name: x";
+        $expected = "items[1]:\n  - data: []\n    name: x";
         $this->assertEquals($expected, Toon::encode($input));
     }
 
@@ -215,7 +217,7 @@ final class TabularArraysTest extends TestCase
                 'prefs' => [],
             ],
         ];
-        $expected = "user:\n  id: 123\n  name: Ada\n  tags[2]: reading,gaming\n  active: true\n  prefs[0]:";
+        $expected = "user:\n  id: 123\n  name: Ada\n  tags[2]: reading,gaming\n  active: true\n  prefs: []";
         $this->assertEquals($expected, Toon::encode($input));
     }
 

@@ -29,7 +29,7 @@ final class DecodeOptionsTest extends TestCase
     public function test_constructor_validates_negative_indent(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Indent must be a positive integer (at least 1)');
+        $this->expectExceptionMessage('Indent size must be a positive integer (at least 1)');
         new DecodeOptions(indent: -1);
     }
 
@@ -37,7 +37,7 @@ final class DecodeOptionsTest extends TestCase
     {
         // indent 0 makes every line depth 0, so nesting is unrecoverable (§12).
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Indent must be a positive integer (at least 1)');
+        $this->expectExceptionMessage('Indent size must be a positive integer (at least 1)');
         new DecodeOptions(indent: 0);
     }
 
@@ -70,7 +70,7 @@ final class DecodeOptionsTest extends TestCase
     public function test_with_indent_validates_negative_indent(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Indent must be a positive integer (at least 1)');
+        $this->expectExceptionMessage('Indent size must be a positive integer (at least 1)');
         $options = DecodeOptions::default();
         $options->withIndent(-1);
     }
@@ -143,7 +143,7 @@ final class DecodeOptionsTest extends TestCase
     {
         // indent 0 is invalid regardless of strict mode.
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Indent must be a positive integer (at least 1)');
+        $this->expectExceptionMessage('Indent size must be a positive integer (at least 1)');
         new DecodeOptions(indent: 0, strict: false);
     }
 }

@@ -6,7 +6,7 @@ Reference documentation for toon-php.
 
 These are synced from the canonical spec repo via `just sync-spec` — do not edit by hand.
 
-- **[SPEC.md](SPEC.md)** — the official TOON Specification (currently v3.3). Primary reference for all implementation work.
+- **[SPEC.md](SPEC.md)** — the official TOON Specification (currently v4.1). Primary reference for all implementation work.
 - **[CHANGELOG.md](CHANGELOG.md)** — the spec's own per-version changelog (what changed between spec versions).
 - **[VERSIONING.md](VERSIONING.md)** — the spec's versioning policy (breaking vs non-breaking changes).
 

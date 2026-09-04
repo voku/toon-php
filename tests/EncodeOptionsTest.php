@@ -55,7 +55,7 @@ final class EncodeOptionsTest extends TestCase
     public function test_constructor_validates_negative_indent(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Indent must be a positive integer (at least 1)');
+        $this->expectExceptionMessage('Indent size must be a positive integer (at least 1)');
         new EncodeOptions(indent: -1);
     }
 
@@ -79,7 +79,7 @@ final class EncodeOptionsTest extends TestCase
     public function test_with_indent_validates_negative_indent(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Indent must be a positive integer (at least 1)');
+        $this->expectExceptionMessage('Indent size must be a positive integer (at least 1)');
         $options = EncodeOptions::default();
         $options->withIndent(-1);
     }
@@ -118,7 +118,7 @@ final class EncodeOptionsTest extends TestCase
     {
         // indent 0 cannot represent nesting (§12), so it is rejected at construction.
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Indent must be a positive integer (at least 1)');
+        $this->expectExceptionMessage('Indent size must be a positive integer (at least 1)');
         new EncodeOptions(indent: 0);
     }
 
@@ -173,7 +173,7 @@ final class EncodeOptionsTest extends TestCase
         $result = \HelgeSverre\Toon\Toon::encode($input, $options);
 
         // Delimiter applies to the nested inline arrays
-        $this->assertStringContainsString('users[2]:', $result);
+        $this->assertStringContainsString("users[2\t]:", $result); // §11.1: every header declares the document delimiter
         $this->assertStringContainsString("tags[2\t]:", $result); // Nested array uses tab delimiter
         $this->assertStringContainsString("admin\tactive", $result); // Tab delimiter used
         $this->assertStringContainsString("user\tguest", $result);

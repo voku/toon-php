@@ -4,61 +4,379 @@ declare(strict_types=1);
 
 namespace HelgeSverre\Toon\Decoder;
 
+use HelgeSverre\Toon\Constants;
 use HelgeSverre\Toon\Exceptions\SyntaxException;
 
 /**
- * Parses TOON array headers using character-by-character state machine.
+ * Parses TOON array and keyed tabular headers (§6).
  *
- * Following TOON Spec v2.0 Appendix B.2: Array Header Parsing
+ * Handles every header shape:
+ * - `[N<delim?>]:` / `key[N<delim?>]:`            – inline or list form
+ * - `key[N<delim?>]{f1<delim>f2}:`                – tabular form (§9.3)
+ * - `key[N<delim?>]{f1<delim>f2{s1<delim>s2}}:`   – tabular form with nested field groups
+ * - `key[N:<delim?>]{f1<delim>f2}:`               – keyed tabular form (§9.5)
  *
- * Handles all header formats:
- * - [N]: or [N]: values (inline array)
- * - [N|]: or [N\t]: (with delimiter)
- * - [N]{fields}: (tabular)
- * - {fields}: (tabular continuation)
- * - key[N]: (keyed arrays)
- *
- * Note: [#N] format (with length marker) was removed in TOON v2.0 and will be rejected.
+ * A line that is not a header at all returns null with no defect, so the caller
+ * classifies it per §5.2. A line that attempts a header but fails the grammar
+ * returns null with a defect message: strict decoders MUST error, non-strict ones
+ * MAY fall through to key-value parsing (§6, §14.2).
  */
 final class HeaderParser
 {
     /**
-     * Parse a TOON array header.
+     * Parse a TOON header line.
      *
-     * Returns null if line doesn't contain a valid array header.
+     * @param  string|null  $defect  Set to a diagnostic when the line attempts a header but is malformed
+     * @return array{key: ?string, hasKey: bool, length: ?int, keyed: bool, delimiter: string, fields: ?array<int, array{name: string, children: array<int, mixed>|null}>, inlineValues: ?string, format: string}|null
      *
-     * @return array{key: ?string, length: ?int, delimiter: string, fields: ?array<string>, inlineValues: ?string, format: string}|null
+     * @throws SyntaxException On errors that are errors in any mode (§14.2)
      */
-    public static function parseHeader(string $line): ?array
+    public static function parseHeader(string $line, ?string &$defect = null): ?array
     {
+        $defect = null;
+
         $line = trim($line);
         if ($line === '') {
             return null;
         }
 
-        // Check if this is a key-value line with array header: key[N]: value.
-        // The ':' separator and the '['/'{' marker must both lie OUTSIDE any
-        // quoted span, otherwise a quoted value such as "a[3]b" (or an ANSI
-        // escape like "\e[31m...") would be misread as an array header (§7.1).
-        $colonPos = self::findUnquoted($line, ':');
-        if ($colonPos !== false) {
-            $beforeColon = substr($line, 0, $colonPos);
-            $afterColon = substr($line, $colonPos + 1);
+        // §5.2: a line whose first unquoted colon precedes its first unquoted "["
+        // is a key-value line, never a header. Only unquoted occurrences count.
+        $bracketPos = self::findUnquoted($line, '[');
+        if ($bracketPos === false) {
+            return null;
+        }
 
-            // Check if beforeColon contains an (unquoted) array header marker
-            if (self::findUnquoted($beforeColon, '[{') !== false) {
-                /** @var array{key: ?string, length: ?int, delimiter: string, fields: ?array<string>, inlineValues: ?string, format: string}|null */
-                return self::parseKeyedArrayHeader($beforeColon, $afterColon);
+        $colonPos = self::findUnquoted($line, ':');
+        if ($colonPos !== false && $colonPos < $bracketPos) {
+            return null;
+        }
+
+        $keyToken = substr($line, 0, $bracketPos);
+        $hasKey = $keyToken !== '';
+        $key = null;
+
+        if ($hasKey) {
+            // §6: whitespace MUST NOT appear between a key and its bracket segment.
+            if (rtrim($keyToken, " \t") !== $keyToken) {
+                $defect = 'Whitespace between key and bracket segment';
+
+                return null;
+            }
+
+            // §7.4: any token is accepted as a literal key, quoted keys unescaped.
+            $key = ValueParser::parseKey($keyToken, 0);
+        }
+
+        return self::parseBracketSegment($line, $bracketPos, $key, $hasKey, $defect);
+    }
+
+    /**
+     * @param  string|null  $defect  Set to a diagnostic when the header is malformed
+     * @return array{key: ?string, hasKey: bool, length: ?int, keyed: bool, delimiter: string, fields: ?array<int, array{name: string, children: array<int, mixed>|null}>, inlineValues: ?string, format: string}|null
+     */
+    private static function parseBracketSegment(string $line, int $pos, ?string $key, bool $hasKey, ?string &$defect): ?array
+    {
+        $len = strlen($line);
+        $pos++; // skip [
+
+        // Length: a non-negative integer with no leading zeros (§6).
+        $numStart = $pos;
+        while ($pos < $len && ctype_digit($line[$pos])) {
+            $pos++;
+        }
+
+        if ($pos === $numStart) {
+            // "key[]:" is a malformed bracket segment; the "key: []" value form is
+            // handled by the caller and is unaffected (§6, §9.1).
+            $defect = 'Malformed bracket segment: missing length';
+
+            return null;
+        }
+
+        $lengthToken = substr($line, $numStart, $pos - $numStart);
+        if (strlen($lengthToken) > 1 && $lengthToken[0] === '0') {
+            $defect = "Malformed bracket segment: leading zeros in length [{$lengthToken}]";
+
+            return null;
+        }
+
+        $length = (int) $lengthToken;
+
+        // A colon in exactly this position marks the keyed tabular form (§6, §9.5).
+        $keyed = false;
+        if ($pos < $len && $line[$pos] === Constants::COLON) {
+            $keyed = true;
+            $pos++;
+        }
+
+        $delimiter = Constants::DELIMITER_COMMA;
+        if ($pos < $len && ($line[$pos] === Constants::DELIMITER_PIPE || $line[$pos] === Constants::DELIMITER_TAB)) {
+            $delimiter = $line[$pos];
+            $pos++;
+        }
+
+        if ($pos >= $len || $line[$pos] !== Constants::CLOSE_BRACKET) {
+            $defect = 'Malformed bracket segment: expected "]"';
+
+            return null;
+        }
+        $pos++; // skip ]
+
+        // Optional field list.
+        $fields = null;
+        if ($pos < $len && $line[$pos] === Constants::OPEN_BRACE) {
+            $braceEnd = self::findMatchingBrace($line, $pos);
+            if ($braceEnd === false) {
+                $defect = 'Malformed field list: unmatched brace';
+
+                return null;
+            }
+
+            $fields = self::parseFieldList(substr($line, $pos + 1, $braceEnd - $pos - 1), $delimiter, $defect);
+            if ($fields === null) {
+                return null;
+            }
+
+            $pos = $braceEnd + 1;
+        }
+
+        // §6/§9.5: a keyed header MUST carry a field list.
+        if ($keyed && $fields === null) {
+            $defect = 'Keyed header requires a field list';
+
+            return null;
+        }
+
+        // §6: a colon MUST follow the bracket segment and optional field list, with
+        // no intervening content.
+        if ($pos >= $len || $line[$pos] !== Constants::COLON) {
+            $defect = 'Malformed header: expected ":" after bracket segment';
+
+            return null;
+        }
+        $pos++; // skip :
+
+        $remaining = trim(substr($line, $pos), ' ');
+
+        if ($fields !== null) {
+            // §6: a fields-bearing header carries no inline content.
+            if ($remaining !== '') {
+                $defect = 'Content after a fields-bearing header\'s colon';
+
+                return null;
+            }
+
+            return [
+                'key' => $key,
+                'hasKey' => $hasKey,
+                'length' => $length,
+                'keyed' => $keyed,
+                'delimiter' => $delimiter,
+                'fields' => $fields,
+                'inlineValues' => null,
+                'format' => $keyed ? 'keyed' : 'tabular',
+            ];
+        }
+
+        // A non-keyed header without a field list: content after the colon is an
+        // inline primitive array; nothing after it opens a block scope (§9.1-§9.4).
+        return [
+            'key' => $key,
+            'hasKey' => $hasKey,
+            'length' => $length,
+            'keyed' => false,
+            'delimiter' => $delimiter,
+            'fields' => null,
+            'inlineValues' => $remaining !== '' ? $remaining : null,
+            'format' => ($remaining !== '' || $length === 0) ? 'inline' : 'list',
+        ];
+    }
+
+    /**
+     * Parse a field list's inner text into field entries, recursing into nested groups (§6, §9.3).
+     *
+     * @param  string|null  $defect  Set to a diagnostic when the field list is malformed
+     * @return array<int, array{name: string, children: array<int, mixed>|null}>|null
+     */
+    private static function parseFieldList(string $inner, string $delimiter, ?string &$defect): ?array
+    {
+        // §6/§14.2: an empty field list is a header syntax error at every nesting level.
+        if (trim($inner) === '') {
+            $defect = 'Malformed field list: empty field list';
+
+            return null;
+        }
+
+        $entries = self::splitTopLevel($inner, $delimiter);
+        if ($entries === null) {
+            $defect = 'Malformed field list: unmatched brace';
+
+            return null;
+        }
+
+        $fields = [];
+        foreach ($entries as $entry) {
+            $entry = trim($entry);
+            if ($entry === '') {
+                $defect = 'Malformed field list: empty field entry';
+
+                return null;
+            }
+
+            // Split the entry into its name and an optional nested field group.
+            $groupStart = self::findUnquoted($entry, Constants::OPEN_BRACE);
+            $nameToken = $groupStart === false ? $entry : substr($entry, 0, $groupStart);
+            $nameToken = trim($nameToken);
+
+            if ($nameToken === '') {
+                $defect = 'Malformed field list: empty field name';
+
+                return null;
+            }
+
+            // §6/§14.2: the field list splits on the bracket segment's delimiter; an
+            // unquoted field name still carrying a different delimiter means the two
+            // segments disagree.
+            if (! str_starts_with($nameToken, Constants::DOUBLE_QUOTE)) {
+                foreach ([Constants::DELIMITER_COMMA, Constants::DELIMITER_PIPE, Constants::DELIMITER_TAB] as $other) {
+                    if ($other !== $delimiter && str_contains($nameToken, $other)) {
+                        $defect = 'Header delimiter mismatch between bracket segment and field list';
+
+                        return null;
+                    }
+                }
+            }
+
+            $name = ValueParser::parseKey($nameToken, 0);
+
+            $children = null;
+            if ($groupStart !== false) {
+                $groupEnd = self::findMatchingBrace($entry, $groupStart);
+                if ($groupEnd === false || $groupEnd !== strlen($entry) - 1) {
+                    $defect = 'Malformed field list: unmatched brace';
+
+                    return null;
+                }
+
+                $children = self::parseFieldList(substr($entry, $groupStart + 1, $groupEnd - $groupStart - 1), $delimiter, $defect);
+                if ($children === null) {
+                    return null;
+                }
+            }
+
+            $fields[] = ['name' => $name, 'children' => $children];
+        }
+
+        return $fields;
+    }
+
+    /**
+     * Split a field list's inner text on the active delimiter, at brace depth 0 only.
+     *
+     * Returns null when braces are unbalanced.
+     *
+     * @return array<int, string>|null
+     */
+    private static function splitTopLevel(string $input, string $delimiter): ?array
+    {
+        $parts = [];
+        $current = '';
+        $depth = 0;
+        $inQuotes = false;
+        $len = strlen($input);
+
+        for ($i = 0; $i < $len; $i++) {
+            $char = $input[$i];
+
+            if ($inQuotes) {
+                $current .= $char;
+                if ($char === Constants::BACKSLASH && $i + 1 < $len) {
+                    $current .= $input[$i + 1];
+                    $i++;
+
+                    continue;
+                }
+                if ($char === Constants::DOUBLE_QUOTE) {
+                    $inQuotes = false;
+                }
+
+                continue;
+            }
+
+            if ($char === Constants::DOUBLE_QUOTE) {
+                $inQuotes = true;
+                $current .= $char;
+
+                continue;
+            }
+
+            if ($char === Constants::OPEN_BRACE) {
+                $depth++;
+            } elseif ($char === Constants::CLOSE_BRACE) {
+                $depth--;
+                if ($depth < 0) {
+                    return null;
+                }
+            } elseif ($char === $delimiter && $depth === 0) {
+                $parts[] = $current;
+                $current = '';
+
+                continue;
+            }
+
+            $current .= $char;
+        }
+
+        if ($depth !== 0 || $inQuotes) {
+            return null;
+        }
+
+        $parts[] = $current;
+
+        return $parts;
+    }
+
+    /**
+     * Index of the "}" matching the "{" at $start, or false when unmatched.
+     *
+     * Brace matching ignores "{" and "}" inside quoted names (§6).
+     */
+    private static function findMatchingBrace(string $line, int $start): int|false
+    {
+        $depth = 0;
+        $inQuotes = false;
+        $len = strlen($line);
+
+        for ($i = $start; $i < $len; $i++) {
+            $char = $line[$i];
+
+            if ($inQuotes) {
+                if ($char === Constants::BACKSLASH && $i + 1 < $len) {
+                    $i++;
+
+                    continue;
+                }
+                if ($char === Constants::DOUBLE_QUOTE) {
+                    $inQuotes = false;
+                }
+
+                continue;
+            }
+
+            if ($char === Constants::DOUBLE_QUOTE) {
+                $inQuotes = true;
+            } elseif ($char === Constants::OPEN_BRACE) {
+                $depth++;
+            } elseif ($char === Constants::CLOSE_BRACE) {
+                $depth--;
+                if ($depth === 0) {
+                    return $i;
+                }
             }
         }
 
-        // Direct array header (no key)
-        if (str_starts_with($line, '[') || str_starts_with($line, '{')) {
-            /** @var array{key: ?string, length: ?int, delimiter: string, fields: ?array<string>, inlineValues: ?string, format: string}|null */
-            return self::parseDirectArrayHeader($line);
-        }
-
-        return null;
+        return false;
     }
 
     /**
@@ -67,7 +385,7 @@ final class HeaderParser
      * inside a quoted string a backslash escapes the next character (§7.1), so
      * an escaped quote does not end the string.
      */
-    private static function findUnquoted(string $line, string $needles): int|false
+    public static function findUnquoted(string $line, string $needles): int|false
     {
         $inQuotes = false;
         $len = strlen($line);
@@ -76,19 +394,19 @@ final class HeaderParser
             $char = $line[$i];
 
             if ($inQuotes) {
-                if ($char === '\\' && $i + 1 < $len) {
+                if ($char === Constants::BACKSLASH && $i + 1 < $len) {
                     $i++;
 
                     continue;
                 }
-                if ($char === '"') {
+                if ($char === Constants::DOUBLE_QUOTE) {
                     $inQuotes = false;
                 }
 
                 continue;
             }
 
-            if ($char === '"') {
+            if ($char === Constants::DOUBLE_QUOTE) {
                 $inQuotes = true;
             } elseif (str_contains($needles, $char)) {
                 return $i;
@@ -96,206 +414,5 @@ final class HeaderParser
         }
 
         return false;
-    }
-
-    /**
-     * @return array{key: ?string, length: ?int, delimiter: string, fields: ?array<string>, inlineValues: ?string, format: string}|null
-     */
-    private static function parseKeyedArrayHeader(string $keyPart, string $valuePart): ?array
-    {
-        // Find where the array header starts in the key, scanning outside quotes
-        // so a quoted key prefix like "a[b]"[3] is not split on its inner bracket.
-        $bracketPos = self::findUnquoted($keyPart, '[');
-        $bracePos = self::findUnquoted($keyPart, '{');
-
-        $headerStart = false;
-        if ($bracketPos !== false && ($bracePos === false || $bracketPos < $bracePos)) {
-            $headerStart = $bracketPos;
-        } elseif ($bracePos !== false) {
-            $headerStart = $bracePos;
-        }
-
-        if ($headerStart === false) {
-            return null;
-        }
-
-        $key = trim(substr($keyPart, 0, $headerStart));
-
-        // A quoted key prefix (e.g. "my-key"[3]:) MUST be unescaped per §7.4.
-        if ($key !== '' && str_starts_with($key, '"')) {
-            $key = ValueParser::parseKey($key, 0);
-        }
-
-        $headerAndValue = substr($keyPart, $headerStart).':'.$valuePart;
-
-        $header = self::parseDirectArrayHeader($headerAndValue);
-        if ($header === null) {
-            return null;
-        }
-
-        $header['key'] = $key;
-
-        return $header;
-    }
-
-    /**
-     * @return array{key: ?string, length: ?int, delimiter: string, fields: ?array<string>, inlineValues: ?string, format: string}|null
-     */
-    private static function parseDirectArrayHeader(string $line): ?array
-    {
-        $result = [
-            'key' => null,
-            'length' => null,
-            'delimiter' => ',',
-            'fields' => null,
-            'inlineValues' => null,
-            'format' => 'list',
-        ];
-
-        $pos = 0;
-        $len = strlen($line);
-
-        // Parse length section [N] or [N|] etc
-        if ($line[$pos] === '[') {
-            $pos++; // skip [
-
-            // TOON v2.0: Reject deprecated [#N] format
-            if ($pos < $len && $line[$pos] === '#') {
-                throw new SyntaxException(
-                    'Invalid array header format: [#N] syntax is not supported in TOON v2.0. Use [N] instead.',
-                    0,
-                    $line
-                );
-            }
-
-            // Parse length number
-            $numStart = $pos;
-            while ($pos < $len && ctype_digit($line[$pos])) {
-                $pos++;
-            }
-
-            if ($pos > $numStart) {
-                $numStr = substr($line, $numStart, $pos - $numStart);
-
-                // Reject leading-zero lengths like [03] (§6): these MUST NOT be
-                // interpreted as bracket segments. Returning null lets non-strict
-                // callers fall through to key-value parsing; strict mode errors
-                // on the resulting bracket-bearing key (see Parser).
-                if (strlen($numStr) > 1 && $numStr[0] === '0') {
-                    return null;
-                }
-
-                $result['length'] = (int) $numStr;
-            }
-
-            // TOON v2.0: Also check for # after digits (catches [N#] pattern)
-            if ($pos < $len && $line[$pos] === '#') {
-                throw new SyntaxException(
-                    'Invalid array header format: [#N] syntax is not supported in TOON v2.0. Use [N] instead.',
-                    0,
-                    $line
-                );
-            }
-
-            // Check for delimiter marker
-            if ($pos < $len) {
-                if ($line[$pos] === '|') {
-                    $result['delimiter'] = '|';
-                    $pos++;
-                } elseif ($line[$pos] === "\t") {
-                    $result['delimiter'] = "\t";
-                    $pos++;
-                }
-            }
-
-            // Expect ]
-            if ($pos >= $len || $line[$pos] !== ']') {
-                return null;
-            }
-            $pos++; // skip ]
-
-            // "[]" (or "[|]", "[\t]") with no digits is the canonical empty
-            // array (§9.1). Legacy "[0]" is handled by the digit parse above.
-            if ($result['length'] === null) {
-                $result['length'] = 0;
-            }
-        }
-
-        // Parse fields section {field1,field2}
-        if ($pos < $len && $line[$pos] === '{') {
-            $braceStart = $pos;
-            $pos++; // skip {
-
-            // Find matching }
-            $braceEnd = strpos($line, '}', $pos);
-            if ($braceEnd === false) {
-                return null;
-            }
-
-            $fieldsStr = substr($line, $pos, $braceEnd - $pos);
-
-            // Split the field list using the delimiter declared in the bracket segment.
-            $rawFields = DelimiterParser::split($fieldsStr, $result['delimiter'], 0);
-
-            // Clean field names, detecting a header delimiter mismatch (§6, §14.2):
-            // the field list MUST use the same active delimiter as the bracket segment.
-            // If an unquoted field still contains a different delimiter character, the
-            // two segments disagree, so this is not a valid header. Returning null lets
-            // the caller reject it in strict mode (malformed bracket key) or fall through
-            // to key-value parsing in non-strict mode.
-            $cleanFields = [];
-            foreach ($rawFields as $field) {
-                $field = trim($field);
-                $isQuoted = strlen($field) >= 2 && str_starts_with($field, '"') && str_ends_with($field, '"');
-
-                if (! $isQuoted) {
-                    foreach ([',', '|', "\t"] as $otherDelimiter) {
-                        if ($otherDelimiter !== $result['delimiter'] && str_contains($field, $otherDelimiter)) {
-                            return null;
-                        }
-                    }
-                } else {
-                    $field = substr($field, 1, -1);
-                }
-
-                $cleanFields[] = $field;
-            }
-            $result['fields'] = $cleanFields;
-            $result['format'] = 'tabular';
-
-            $pos = $braceEnd + 1; // move past }
-        } elseif ($result['length'] === null && $pos < $len && $line[$pos] === '{') {
-            // Standalone {fields}: format (tabular continuation)
-            return self::parseDirectArrayHeader('[0]'.substr($line, $pos));
-        }
-
-        // Expect : after header
-        if ($pos >= $len || $line[$pos] !== ':') {
-            // Bare "[]" literal on its own — root/standalone empty array (§5, §9.1).
-            if ($pos >= $len && $result['length'] === 0 && $result['fields'] === null) {
-                $result['format'] = 'inline';
-
-                return $result;
-            }
-
-            return null;
-        }
-        $pos++; // skip :
-
-        // Check if there are inline values after :
-        $remaining = trim(substr($line, $pos));
-        if ($remaining !== '') {
-            $result['inlineValues'] = $remaining;
-            $result['format'] = 'inline';
-        } elseif ($result['fields'] !== null) {
-            $result['format'] = 'tabular';
-        } else {
-            // Empty after colon: [N]:
-            // If length is 0, it's an empty inline array
-            // Otherwise, it's a list array that expects child lines
-            $result['format'] = ($result['length'] === 0) ? 'inline' : 'list';
-        }
-
-        return $result;
     }
 }

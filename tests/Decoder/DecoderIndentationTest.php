@@ -211,7 +211,7 @@ final class DecoderIndentationTest extends TestCase
     {
         // indent 0 cannot express depth, so it is rejected at construction (§12).
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Indent must be a positive integer (at least 1)');
+        $this->expectExceptionMessage('Indent size must be a positive integer (at least 1)');
         new DecodeOptions(indent: 0);
     }
 

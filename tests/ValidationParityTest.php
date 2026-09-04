@@ -62,16 +62,18 @@ final class ValidationParityTest extends TestCase
         yield 'inline array in object' => ["nums: [3]: 1,2,3\nname: test"];
         yield 'list array' => ["[3]:\n  - apple\n  - banana\n  - cherry"];
         yield 'list array nested objects' => ["[2]:\n  - id: 1\n    name: Alice\n  - id: 2\n    name: Bob"];
-        yield 'list array in object' => ["items:\n  [2]:\n    - apple\n    - banana\ncount: 2"];
+        yield 'list array in object' => ["items[2]:\n  - apple\n  - banana\ncount: 2"];
         yield 'tabular array' => ["[2]{id,name}:\n  1,Alice\n  2,Bob"];
-        yield 'tabular array without length' => ["{id,name}:\n  1,Alice\n  2,Bob\n  3,Charlie"];
-        yield 'tabular array in object' => ["users:\n  [2]{id,name}:\n    1,Alice\n    2,Bob\ntotal: 2"];
+        yield 'keyed tabular object' => ["users[2:]{age,city}:\n  alice: 30,Oslo\n  bob: 41,Bergen"];
+        yield 'tabular array in object' => ["users[2]{id,name}:\n  1,Alice\n  2,Bob\ntotal: 2"];
         yield 'tabular array quoted fields' => ["[2]{\"first name\",\"last name\"}:\n  Alice,Smith\n  Bob,Jones"];
         yield 'tabular array null values' => ["[2]{id,name,email}:\n  1,Alice,null\n  2,Bob,null"];
         yield 'tab in quoted string' => ["text: \"hello\tworld\""];
         yield 'tab in values' => ["[2]: a\tb,c\td"];
-        yield 'blank line after array before sibling' => ["nums:\n  [2]:\n    - 1\n    - 2\n\nname: test"];
-        yield 'blank line after tabular before sibling' => ["users:\n  [2]{id,name}:\n    1,Alice\n    2,Bob\n\ncount: 2"];
+        yield 'blank line before list items' => ["[3]:\n\n  - a\n  - b\n  - c"];
+        yield 'blank line before tabular rows' => ["[2]{id,name}:\n\n  1,Alice\n  2,Bob"];
+        yield 'blank line after array before sibling' => ["nums[2]:\n  - 1\n  - 2\n\nname: test"];
+        yield 'blank line after tabular before sibling' => ["users[2]{id,name}:\n  1,Alice\n  2,Bob\n\ncount: 2"];
     }
 
     /**
@@ -94,9 +96,7 @@ final class ValidationParityTest extends TestCase
         yield 'list array missing hyphen' => ["[2]:\n  - a\n  b"];
         yield 'tabular row width mismatch' => ["[1]{id,name,email}:\n  1,Alice"];
         yield 'tabular count mismatch' => ["[3]{id,name}:\n  1,Alice\n  2,Bob"];
-        yield 'blank line before list items' => ["[3]:\n\n  - a\n  - b\n  - c"];
         yield 'blank line in list array' => ["[3]:\n  - a\n\n  - b\n  - c"];
-        yield 'blank line before tabular rows' => ["[2]{id,name}:\n\n  1,Alice\n  2,Bob"];
         yield 'blank line in tabular rows' => ["[3]{id,name}:\n  1,Alice\n\n  2,Bob\n  3,Charlie"];
         yield 'nested blank line in array' => ["data:\n  [2]:\n    - a\n\n    - b"];
     }

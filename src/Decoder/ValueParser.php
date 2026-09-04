@@ -24,8 +24,8 @@ final class ValueParser
      */
     public static function parseValue(string $token, int $lineNumber = 0): mixed
     {
-        // Trim whitespace (§12.11 - whitespace tolerance)
-        $token = trim($token);
+        // §12: token trimming is exactly U+0020, no other characters.
+        $token = trim($token, ' ');
 
         // Empty string after trimming is invalid
         if ($token === '') {
@@ -52,10 +52,22 @@ final class ValueParser
      */
     private static function parseQuotedString(string $token, int $lineNumber): string
     {
-        // Must start and end with quotes
-        if (! str_starts_with($token, '"') || ! str_ends_with($token, '"')) {
+        // §7.4 quoted-token boundary (any mode): a token whose first character is a
+        // double quote MUST be a complete quoted token - its closing quote MUST be
+        // the token's last character, and any character after it MUST error.
+        $closing = self::findClosingQuote($token);
+
+        if ($closing === null) {
             throw new SyntaxException(
                 'Unterminated quoted string',
+                $lineNumber,
+                $token
+            );
+        }
+
+        if ($closing !== strlen($token) - 1) {
+            throw new SyntaxException(
+                'Unexpected content after closing quote',
                 $lineNumber,
                 $token
             );
@@ -64,8 +76,33 @@ final class ValueParser
         // Extract content (remove surrounding quotes)
         $content = substr($token, 1, -1);
 
-        // Unescape (§7.1.1, §7.4.1)
+        // Unescape (§7.1)
         return self::unescape($content, $lineNumber, $token);
+    }
+
+    /**
+     * Index of the quote closing the quoted token that starts at index 0, or null
+     * when the token is unterminated. A backslash escapes the next character (§7.1).
+     */
+    private static function findClosingQuote(string $token): ?int
+    {
+        $len = strlen($token);
+
+        for ($i = 1; $i < $len; $i++) {
+            $char = $token[$i];
+
+            if ($char === '\\') {
+                $i++;
+
+                continue;
+            }
+
+            if ($char === '"') {
+                return $i;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -200,41 +237,51 @@ final class ValueParser
     }
 
     /**
-     * Try to parse a token as a number.
+     * TOON's normative decoder number grammar (§4).
      *
-     * Returns null if token is not a valid number.
-     * Handles leading zero rule (§4.3): "05" is a string, not a number.
+     * An unquoted token decodes as a number if and only if it matches this pattern
+     * and carries no forbidden leading zeros. Tokens such as ".5", "1.", "+5",
+     * "Infinity", "NaN", "0x10" and "1_000" are strings; the decision is never
+     * delegated to a host parser with a wider grammar.
+     */
+    private const NUMBER_GRAMMAR = '/^-?[0-9]+(?:\.[0-9]+)?(?:e[+-]?[0-9]+)?$/i';
+
+    /**
+     * Try to parse a token as a number per the §4 number grammar.
+     *
+     * Returns null if the token is not a number, in which case it decodes as a string.
      *
      * @param  string  $token  Token to parse
      * @return int|float|null Parsed number, or null if not a number
      */
     private static function parseNumeric(string $token): int|float|null
     {
-        // Check for leading zero (except "0" itself) (§4.3)
-        if (self::hasLeadingZero($token)) {
-            return null; // Treat as string
+        if (preg_match(self::NUMBER_GRAMMAR, $token) !== 1) {
+            return null;
         }
 
-        // Try integer parsing
-        if (is_numeric($token) && ! str_contains($token, '.') && ! str_contains($token, 'e') && ! str_contains($token, 'E')) {
+        // Forbidden leading zeros in the integer part (§4): "05" is a string.
+        if (self::hasLeadingZero($token)) {
+            return null;
+        }
+
+        // Integers stay integers unless they overflow the host's integer domain.
+        if (! str_contains($token, '.') && ! str_contains($token, 'e') && ! str_contains($token, 'E')) {
             $value = (int) $token;
 
-            // Verify the string representation matches (handles overflow)
-            if ((string) $value === $token) {
+            // §4: "-0" decodes to zero.
+            if ((string) $value === $token || $token === '-0') {
                 return $value;
             }
 
-            // Overflow: convert to float
+            // Out of the integer domain: fall back to the float approximation.
             return (float) $token;
         }
 
-        // Try float parsing (handles scientific notation)
-        if (is_numeric($token)) {
-            return (float) $token;
-        }
+        $float = (float) $token;
 
-        // Not a number
-        return null;
+        // §4: negative zero decodes to zero.
+        return $float === 0.0 ? 0.0 : $float;
     }
 
     /**
@@ -290,7 +337,8 @@ final class ValueParser
      */
     public static function parseKey(string $token, int $lineNumber = 0): string
     {
-        $token = trim($token);
+        // §12: key tokens are trimmed of U+0020 only.
+        $token = trim($token, ' ');
 
         if ($token === '') {
             throw new SyntaxException('Empty key', $lineNumber);

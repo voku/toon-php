@@ -84,7 +84,7 @@ final class StrictValidator
      *
      * @param  int  $expected  Expected count from [N] declaration
      * @param  int  $actual  Actual parsed count
-     * @param  string  $arrayType  Type: 'inline', 'list', or 'tabular'
+     * @param  string  $arrayType  Type: 'inline', 'list', 'tabular', or 'keyed'
      * @param  int  $lineNumber  Line number for error reporting
      * @param  string  $snippet  Content snippet for error context
      * @param  bool  $strict  Whether strict mode is enabled
@@ -108,6 +108,7 @@ final class StrictValidator
                 'inline' => "Inline array length mismatch: expected $expected, got $actual",
                 'list' => "List array length mismatch: expected $expected, got $actual",
                 'tabular' => "Tabular array length mismatch: expected $expected rows, got $actual",
+                'keyed' => "Keyed tabular entry count mismatch: expected $expected entries, got $actual",
                 default => "Array length mismatch: expected $expected, got $actual",
             };
 
@@ -151,28 +152,31 @@ final class StrictValidator
     }
 
     /**
-     * Validate no blank lines inside arrays/tabular rows (§14.9, REQ-14.9, §12.13, REQ-12.13, §12.17, REQ-12.17).
+     * Validate that no blank line falls inside a header's span (§12).
      *
-     * Blank lines between first and last row/item in an array MUST error in strict mode.
-     * - §12.13: Inside arrays/tabular rows, blank lines MUST error in strict mode
-     * - §12.17: If blank line occurs between first and last row/item line in array/tabular block, MUST error
+     * The header span runs from the scope's first item, row, or entry line through
+     * the last line of its content. A blank line inside it MUST error in strict
+     * mode. Blank lines elsewhere - notably between the header and the scope's
+     * first content line, and after the scope's content - MUST be ignored.
      *
      * @param  array<int, array{content: string, depth: int, line: int, indent: int, blank?: bool}>  $lines  All lines
-     * @param  int  $startIndex  Array start index
-     * @param  int  $endIndex  Array end index (exclusive)
+     * @param  int|null  $firstContentIndex  Index of the scope's first item/row/entry line, or null when it has none
+     * @param  int  $endIndex  Span end index (exclusive)
      * @param  DecodeOptions  $options  Decode options
      *
-     * @throws StrictModeException If blank line found within array bounds
+     * @throws StrictModeException If a blank line is found inside the span
      */
     public static function validateNoBlankLinesInArray(
         array $lines,
-        int $startIndex,
+        ?int $firstContentIndex,
         int $endIndex,
         DecodeOptions $options
     ): void {
-        if (! $options->strict) {
-            return; // Only validate in strict mode
+        if (! $options->strict || $firstContentIndex === null) {
+            return; // Only validate in strict mode, and only when the scope has content
         }
+
+        $startIndex = $firstContentIndex;
 
         // Check for blank lines between start and end
         for ($i = $startIndex + 1; $i < $endIndex; $i++) {

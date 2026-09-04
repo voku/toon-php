@@ -91,7 +91,7 @@ final class Version31To33ComplianceTest extends TestCase
 
     public function test_strict_rejects_leading_zero_length(): void
     {
-        $this->expectExceptionMessage('Malformed array header');
+        $this->expectExceptionMessage('Malformed bracket segment');
         Toon::decode('items[03]: a,b,c', new DecodeOptions(strict: true));
     }
 

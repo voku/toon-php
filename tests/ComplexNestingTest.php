@@ -159,7 +159,7 @@ final class ComplexNestingTest extends TestCase
         $options = new EncodeOptions(delimiter: "\t");
 
         $expected = "level1:\n"
-            ."  items[2]:\n"
+            ."  items[2\t]:\n"
             ."    - data[3\t]: a\tb\tc\n"
             ."    - data[2\t]: d\te\n"
             ."  tags[3\t]: x\ty\tz";

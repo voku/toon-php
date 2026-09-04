@@ -1,20 +1,54 @@
 # TOON Specification Compliance Report
 
 **Library:** toon-php
-**Version:** 3.2.0
-**Spec Version:** TOON Specification v3.3
-**Date:** 2026-07-08
+**Version:** 4.0.0
+**Spec Version:** TOON Specification v4.1
 **Status:** ✅ CONFORMANT
 
 ---
 
-## Test Results
+## v4.0–v4.1 Compliance Notes
 
-- **Total Tests:** 806
-- **Passing:** 806 (100%)
-- **Failing:** 0
-- **PHPStan Level:** 9 (maximum strictness)
-- **PHPStan Errors:** 0
+Aligns with **TOON Specification v4.1**.
+
+### Encoder
+
+- **§9.3 Nested field groups**: a column whose values are uniform non-empty objects is emitted as a nested field group (`items[2]{id,dims{w,h}}:`), keeping the array tabular. Groups nest without a depth cap; row cells are the primitive leaf values in depth-first, pre-order header order.
+- **§9.3 Tabular form is mandatory**: wherever detection succeeds and the position permits a fields-bearing header, tabular form is used. Arrays containing an empty object, or with a column that is neither uniform-primitive nor nested-uniform, fall back to list form (§9.4).
+- **§9.5 Keyed tabular form**: an object with at least two entries whose values are uniform non-empty objects is emitted as `key[N:]{fields}:` with one `entrykey: cells` row per entry. It applies in object-field position and at the document root, and its header may carry nested field groups. Array elements are anonymous and never use the keyed form.
+- **§9.1 Empty arrays**: `key: []` in object-field position and `[]` at the root. The legacy `key[0]:` / `[0]:` header forms are no longer emitted. Inner list-item arrays keep `- [0]:` per §9.2.
+- **§10 Depth model**: a scope opened by the field carried on a list-item hyphen line has its content at depth +2, so it can never be confused with a sibling field at depth +1.
+- **§11.1 Delimiter declaration**: every header — inline, list, tabular and keyed — declares the document delimiter.
+- **§7.2 Quoting**: strings that equal or start with `#` are quoted, so encoder output never contains a line that reads as a comment (§5.1). The numeric-like trigger covers leading-plus forms, so `"+1"` is emitted quoted.
+- **§3 Host strings**: a PHP string that is not well-formed UTF-8 — which is how an unpaired surrogate reaches the encoder — is rejected with an `InvalidArgumentException` rather than emitted or silently substituted.
+
+### Decoder
+
+- **§5.1 Comment lines**: a line whose first character after zero or more spaces is `#` is removed in a lexical pre-pass, in strict and non-strict mode alike. Comment removal never creates or terminates a scope, and a comment is never counted as a row, item, entry, or blank line. A tab in the leading whitespace disqualifies the line.
+- **§6 Headers**: nested field groups and keyed headers (`[N:<delim?>]`) are parsed recursively, with brace matching that ignores braces inside quoted names. Malformed headers — a missing length (`key[]:`), leading-zero lengths (`[03]`), a keyed header without a field list, an empty field list at any nesting level, unmatched braces, a delimiter mismatch, whitespace between a key and its bracket segment, content between the bracket segment and the colon, or content after a fields-bearing header's colon — are strict-mode errors and fall through to key-value parsing in non-strict mode.
+- **§6 / §14.2 Keyless header positions**: a keyless non-keyed header is valid only as the document's root header or as a list item; a keyless fields-bearing header only at the root. Elsewhere it is a strict-mode error.
+- **§4 Number grammar**: an unquoted token decodes as a number only when it matches `/^-?[0-9]+(?:\.[0-9]+)?(?:e[+-]?[0-9]+)?$/i` without forbidden leading zeros. `.5`, `1.`, `+5`, `Infinity`, `NaN`, `0x10` and `1_000` decode as strings; the decision is never delegated to PHP's wider `is_numeric()`.
+- **§4 / §14.2 Ill-formed UTF-8**: strict mode errors on input that is not well-formed UTF-8 instead of substituting U+FFFD.
+- **§7.4 Quoted-token boundary**: a token whose first character is `"` must end at its closing quote; any character after it errors, in strict and non-strict mode alike.
+- **§7.4 Unquoted key tokens**: any token before the first unquoted colon is accepted as a literal key, so `foo-bar: 1`, `2key`, and `5]: x` are valid input.
+- **§9.3 Row disambiguation**: at row depth, a line with no unquoted colon is a row; when both appear, the delimiter before the colon makes it a row and the colon before the delimiter ends the rows.
+- **§9.5 Entry rows**: every line at entry depth containing an unquoted colon is an entry row; a keyed scope ends only when the depth decreases or at end of input. A line at entry depth without an unquoted colon is a strict-mode error.
+- **§14.1 Non-strict tolerance**: a declared `[N]` never terminates or truncates a scope. On a width mismatch the field walk applies unchanged — a leaf field with no remaining cell is absent, and surplus cells contribute nothing.
+- **§14.2 Indentation**: a depth jump of more than one level, and a line deeper than its enclosing scope's content depth whose preceding line did not open a scope, are strict-mode errors; non-strict skips the latter.
+- **§5 / §14.2 Trailing content**: any non-comment, non-blank line following a completed root array, keyed tabular root object, or root `[]` is a strict-mode error.
+- **§12 Blank lines**: a header's span runs from its first item, row, or entry line through the last line of its content. A blank line inside the span is a strict-mode error; blank lines between a header and its first row, and after a scope's content, are ignored in both modes.
+- **§12 Byte-order mark, CRLF, trailing spaces**: a single leading U+FEFF is removed before any processing; a trailing CR is excluded from each line's content; trailing spaces are stripped before line classification.
+- **§15 Prototype-key safety**: PHP arrays have no prototype chain, so `__proto__`, `constructor` and `prototype` decode as ordinary own entries with no special handling.
+- **§8 Dotted keys**: single literal keys. Key folding and path expansion were removed in v4.0 and were never implemented here.
+
+### Options
+
+- **§13 `indentSize`**: `EncodeOptions` and `DecodeOptions` accept `indentSize`. The former `indent` name remains as a deprecated alias on both the constructor and the properties.
+
+### PHP-specific notes
+
+- **Empty arrays vs empty objects**: PHP represents both `[]` and `{}` as an empty array. The library reads an empty PHP array as an empty **array**, so `encode([])` emits `[]` and `encode(['k' => []])` emits `k: []`. Both round-trip.
+- **Numeric out-of-range policy (§4)**: an integer token outside PHP's integer domain decodes to the nearest float. Numeric keys are quoted on output because PHP coerces numeric string keys to integers.
 
 ---
 
@@ -23,16 +57,13 @@
 Aligns with **TOON Specification v3.3**. Changes since v3.0:
 
 - **§7.1 Unicode escapes**: encoder emits C0 control characters (U+0000–U+001F except `\n`, `\r`, `\t`) as `\uXXXX`; decoder accepts `\uXXXX` (case-insensitive hex), rejecting lone surrogates and escapes with fewer than four hex digits. Control characters are preserved as data, never stripped (§15).
-- **§9.1 Empty arrays**: decoder accepts the canonical `[]` and `key: []` forms in addition to the legacy `[0]:` / `key[0]:` forms. The encoder continues to emit the legacy `key[0]:` form, which the spec explicitly permits (`MAY`).
+- **§9.1 Empty arrays**: decoder accepts the canonical `[]` and `key: []` forms in addition to the legacy `[0]:` / `key[0]:` forms.
 - **§2 Numbers**: canonical decimal for `n = 0` or `1e-6 ≤ |n| < 1e21`; exponent notation (lowercase `e`, explicit sign) outside that range. Numbers are never quoted as strings.
 - **§6 / §14.2 Strict headers**: leading-zero and malformed bracket lengths (`[03]`, `[-1]`) are rejected in strict mode; non-strict treats them as literal keys.
 - **§6 / §14.2 Header delimiter mismatch**: a header whose bracket delimiter differs from its field-list delimiter (e.g. `rows[2|]{a,b}:`) is not a valid header. Strict mode reports a header syntax error on the header line, independent of row width/count checks; non-strict falls through to key-value parsing.
 - **§8 / §14.4 Duplicate keys**: strict mode errors on duplicate sibling keys; non-strict applies last-write-wins in document order.
 
-### Deliberate conformant choices
-
-- **§9.1 encoder output**: the encoder emits the legacy `key[0]:` form rather than the `SHOULD`-preferred `key: []`. Both are spec-conformant; the legacy form is retained for output stability. The decoder accepts both forms.
-- **§5 root empty array**: `encode([])` emits an empty document (decodes to `{}`) rather than `[]`, because PHP cannot distinguish an empty array from an empty object at the root. The decoder still accepts the canonical `[]` token.
+> Superseded by v4.1: `key: []` and `[]` are now the only forms the encoder emits (§9.1).
 
 ---
 
@@ -252,41 +283,22 @@ Both use static utility classes appropriately:
 
 ---
 
-## Performance Verification
-
-Post-refactoring benchmarks show:
-
-- Minimal performance impact (< 3% worst case, often better)
-- Some metrics improved (throughput +6.65%)
-- All 806 tests pass
-- PHPStan Level 9 clean
-
----
-
 ## Conclusion
 
-**Status: ✅ CONFORMANT WITH TOON SPECIFICATION v3.3**
+**Status: ✅ CONFORMANT WITH TOON SPECIFICATION v4.1**
 
-The toon-php library successfully implements the MUST requirements for:
+The toon-php library implements the MUST requirements for:
 
 - Encoder conformance (§13.1)
 - Decoder conformance (§13.2)
 - Strict mode validation (§14)
 
-The library is ready for release as v3.2.0 with confidence in its:
-
-- Specification compliance
-- Type safety (PHPStan Level 9)
-- Test coverage (806 passing tests)
-- Code quality (clean architecture)
-- Performance characteristics (benchmarked)
-
 ---
 
 ## References
 
-- TOON Specification v3.3: `/docs/SPEC.md`
+- TOON Specification v4.1: `/docs/SPEC.md`
 - Encoder Implementation: `/src/Encoders.php`, `/src/Toon.php`
 - Decoder Implementation: `/src/Decoder/` directory
-- Test Suite: `/tests/` directory (806 tests)
+- Test Suite: `/tests/` directory
 - Benchmarks: `/benchmarks/results/`
