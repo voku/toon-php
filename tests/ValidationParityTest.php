@@ -70,6 +70,8 @@ final class ValidationParityTest extends TestCase
         yield 'tabular array null values' => ["[2]{id,name,email}:\n  1,Alice,null\n  2,Bob,null"];
         yield 'tab in quoted string' => ["text: \"hello\tworld\""];
         yield 'tab in values' => ["[2]: a\tb,c\td"];
+        yield 'blank line before list items' => ["[3]:\n\n  - a\n  - b\n  - c"];
+        yield 'blank line before tabular rows' => ["[2]{id,name}:\n\n  1,Alice\n  2,Bob"];
         yield 'blank line after array before sibling' => ["nums[2]:\n  - 1\n  - 2\n\nname: test"];
         yield 'blank line after tabular before sibling' => ["users[2]{id,name}:\n  1,Alice\n  2,Bob\n\ncount: 2"];
     }
@@ -94,9 +96,7 @@ final class ValidationParityTest extends TestCase
         yield 'list array missing hyphen' => ["[2]:\n  - a\n  b"];
         yield 'tabular row width mismatch' => ["[1]{id,name,email}:\n  1,Alice"];
         yield 'tabular count mismatch' => ["[3]{id,name}:\n  1,Alice\n  2,Bob"];
-        yield 'blank line before list items' => ["[3]:\n\n  - a\n  - b\n  - c"];
         yield 'blank line in list array' => ["[3]:\n  - a\n\n  - b\n  - c"];
-        yield 'blank line before tabular rows' => ["[2]{id,name}:\n\n  1,Alice\n  2,Bob"];
         yield 'blank line in tabular rows' => ["[3]{id,name}:\n  1,Alice\n\n  2,Bob\n  3,Charlie"];
         yield 'nested blank line in array' => ["data:\n  [2]:\n    - a\n\n    - b"];
     }

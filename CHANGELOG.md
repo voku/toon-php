@@ -29,11 +29,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Object field values (§11.2)**: the entire post-colon token is parsed as a single value. `nums: [3]: 1,2,3` is a key-value line whose value is the string `[3]: 1,2,3`; the header form is `nums[3]: 1,2,3`.
 - **Keyless header positions (§6, §14.2)**: a keyless non-keyed header is valid only as the document's root header or as a list item, and a keyless fields-bearing header only at the root. `key:` followed by an indented `[N]:` is now a strict-mode error rather than a nested array.
 - **Non-strict count and width tolerance (§14.1)**: a declared `[N]` never terminates or truncates a scope. On a width mismatch the §9.3 field walk applies unchanged — a leaf field with no remaining cell is absent from the decoded object, and surplus cells contribute nothing. Width mismatches are no longer errors when `strict: false`.
+- **Blank lines and the header span (§12)**: a header's span runs from its first item, row, or entry line through the last line of its content, so a blank line between a header and its first row is now ignored in strict mode instead of erroring. Blank lines inside the span remain a strict-mode error.
 - A bare `{fields}:` header without a bracket segment is no longer recognized; §6 requires every header to carry one.
 
 ### Fixed
 
-- **Round-trip for a nested object as a list item's first field**: `[[{'a' => ['b' => 1], 'c' => 2]]` previously encoded `b: 1` at the same depth as the sibling field `c`, so it decoded back as a sibling rather than a child. The §10 depth model fixes this.
+- **Round-trip for a nested object as a list item's first field**: `[['a' => ['b' => 1], 'c' => 2]]` previously encoded `b: 1` at the same depth as the sibling field `c`, so it decoded back as a sibling rather than a child. The §10 depth model fixes this.
+
+### Dependencies
+
+- **`ext-mbstring`** is now declared in `composer.json`. The encoder and decoder call `mb_check_encoding()` and `mb_chr()`; the extension was previously an undeclared runtime requirement.
 
 ### Security
 

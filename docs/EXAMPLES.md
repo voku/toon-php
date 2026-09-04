@@ -19,7 +19,7 @@ echo Toon::encode([
 
 Output:
 
-```
+```toon
 user:
   id: 123
   email: ada@example.com
@@ -38,7 +38,7 @@ echo Toon::encode([
 
 Output:
 
-```
+```toon
 tags[3]: reading,gaming,coding
 ```
 
@@ -57,7 +57,7 @@ echo Toon::encode([
 
 Output:
 
-```
+```toon
 items[2]{sku,qty,price}:
   A1,2,9.99
   B2,1,14.5
@@ -78,7 +78,7 @@ echo Toon::encode([
 
 Output:
 
-```
+```toon
 items[2]:
   - id: 1
     name: First
@@ -102,7 +102,7 @@ echo Toon::encode([
 
 Output:
 
-```
+```toon
 items[2]{sku,dims{w,h}}:
   A1,10,4
   B2,7,9
@@ -123,7 +123,7 @@ echo Toon::encode([
 
 Output:
 
-```
+```toon
 stations[2:]{lat,active}:
   tempelhof: 52.47,true
   tegel: 52.55,false
@@ -139,7 +139,7 @@ echo Toon::encode([
 
 Output:
 
-```
+```toon
 pairs[2]:
   - [2]: a,b
   - [2]: c,d
@@ -154,7 +154,7 @@ echo Toon::encode([]);
 
 Output:
 
-```
+```toon
 items: []
 []
 ```

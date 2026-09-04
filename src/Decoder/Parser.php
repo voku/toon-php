@@ -332,6 +332,9 @@ final class Parser
         $items = [];
         $count = count($lines);
         $i = $startIndex + 1;
+        // §12: a header's span runs from its first item/row/entry line, not from
+        // the header line, so a blank line before the first one is ignored.
+        $firstItemIndex = null;
         $lastItemIndex = $startIndex;
 
         while ($i < $count) {
@@ -358,6 +361,7 @@ final class Parser
                 continue;
             }
 
+            $firstItemIndex ??= $i;
             $lastItemIndex = $i;
             $lineContent = trim($line['content']);
 
@@ -438,7 +442,7 @@ final class Parser
             $i++;
         }
 
-        StrictValidator::validateNoBlankLinesInArray($lines, $startIndex, $lastItemIndex + 1, $this->options);
+        StrictValidator::validateNoBlankLinesInArray($lines, $firstItemIndex, $lastItemIndex + 1, $this->options);
 
         StrictValidator::validateArrayCount($expectedLength, count($items), 'list', $firstLine['line'], $firstLine['content'], $this->options->strict);
 
@@ -468,6 +472,8 @@ final class Parser
         $rows = [];
         $count = count($lines);
         $i = $startIndex + 1;
+        // §12: the header span starts at the first row line (see §9.2/§9.4 above).
+        $firstRowIndex = null;
         $lastRowIndex = $startIndex;
 
         while ($i < $count) {
@@ -508,6 +514,7 @@ final class Parser
                 break;
             }
 
+            $firstRowIndex ??= $i;
             $lastRowIndex = $i;
 
             $cells = $this->decodeCells(
@@ -524,7 +531,7 @@ final class Parser
             $i++;
         }
 
-        StrictValidator::validateNoBlankLinesInArray($lines, $startIndex, $lastRowIndex + 1, $this->options);
+        StrictValidator::validateNoBlankLinesInArray($lines, $firstRowIndex, $lastRowIndex + 1, $this->options);
 
         if ($header['length'] !== null) {
             StrictValidator::validateArrayCount($header['length'], count($rows), 'tabular', $firstLine['line'], $firstLine['content'], $this->options->strict);
@@ -557,6 +564,8 @@ final class Parser
         $entryCount = 0;
         $count = count($lines);
         $i = $startIndex + 1;
+        // §12: the header span starts at the first entry row line.
+        $firstEntryIndex = null;
         $lastEntryIndex = $startIndex;
 
         while ($i < $count) {
@@ -598,6 +607,7 @@ final class Parser
                 continue;
             }
 
+            $firstEntryIndex ??= $i;
             $lastEntryIndex = $i;
             $entryCount++;
 
@@ -625,7 +635,7 @@ final class Parser
             $i++;
         }
 
-        StrictValidator::validateNoBlankLinesInArray($lines, $startIndex, $lastEntryIndex + 1, $this->options);
+        StrictValidator::validateNoBlankLinesInArray($lines, $firstEntryIndex, $lastEntryIndex + 1, $this->options);
 
         if ($header['length'] !== null) {
             StrictValidator::validateArrayCount($header['length'], $entryCount, 'keyed', $firstLine['line'], $firstLine['content'], $this->options->strict);

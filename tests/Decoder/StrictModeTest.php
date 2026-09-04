@@ -226,12 +226,11 @@ final class StrictModeTest extends TestCase
     // D. Blank Line Tests (§14.9) - 12 tests
     // ========================================
 
-    public function test_strict_mode_blank_line_before_list_items(): void
+    public function test_strict_mode_ignores_blank_line_before_list_items(): void
     {
-        $this->expectException(StrictModeException::class);
-        $this->expectExceptionMessage('Blank lines not allowed');
-
-        Toon::decode("[3]:\n\n  - a\n  - b\n  - c");
+        // §12: a header's span runs from its first item line, so a blank line
+        // between the header and that first item is ignored, not an error.
+        $this->assertSame(['a', 'b', 'c'], Toon::decode("[3]:\n\n  - a\n  - b\n  - c"));
     }
 
     public function test_strict_mode_blank_line_between_list_items(): void
@@ -259,12 +258,21 @@ final class StrictModeTest extends TestCase
         $this->assertEquals(['a', 'b', 'c'], $result);
     }
 
-    public function test_strict_mode_blank_line_before_tabular_rows(): void
+    public function test_strict_mode_ignores_blank_line_before_tabular_rows(): void
     {
-        $this->expectException(StrictModeException::class);
-        $this->expectExceptionMessage('Blank lines not allowed');
+        // §12: the header span starts at the first row line.
+        $this->assertSame(
+            [['id' => 1, 'name' => 'Alice'], ['id' => 2, 'name' => 'Bob']],
+            Toon::decode("[2]{id,name}:\n\n  1,Alice\n  2,Bob")
+        );
+    }
 
-        Toon::decode("[2]{id,name}:\n\n  1,Alice\n  2,Bob");
+    public function test_strict_mode_ignores_blank_line_before_keyed_entry_rows(): void
+    {
+        $this->assertSame(
+            ['x' => ['a' => 1], 'y' => ['a' => 2]],
+            Toon::decode("[2:]{a}:\n\n  x: 1\n  y: 2")
+        );
     }
 
     public function test_strict_mode_blank_line_between_tabular_rows(): void

@@ -150,7 +150,7 @@ echo Toon::encode([
 
 Output:
 
-```
+```toon
 users[2]{id,name,role}:
   1,Alice,admin
   2,Bob,user
@@ -173,7 +173,7 @@ echo Toon::encode([
 
 Output:
 
-```
+```toon
 forecast[2]{day,temp{min,max},condition}:
   Mon,-2,4,snow
   Tue,1,7,cloudy
@@ -197,7 +197,7 @@ echo Toon::encode([
 
 Output:
 
-```
+```toon
 stations[3:]{lat,lon,active}:
   tempelhof: 52.47,13.4,true
   tegel: 52.55,13.29,false

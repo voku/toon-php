@@ -36,6 +36,7 @@ Aligns with **TOON Specification v4.1**.
 - **§14.1 Non-strict tolerance**: a declared `[N]` never terminates or truncates a scope. On a width mismatch the field walk applies unchanged — a leaf field with no remaining cell is absent, and surplus cells contribute nothing.
 - **§14.2 Indentation**: a depth jump of more than one level, and a line deeper than its enclosing scope's content depth whose preceding line did not open a scope, are strict-mode errors; non-strict skips the latter.
 - **§5 / §14.2 Trailing content**: any non-comment, non-blank line following a completed root array, keyed tabular root object, or root `[]` is a strict-mode error.
+- **§12 Blank lines**: a header's span runs from its first item, row, or entry line through the last line of its content. A blank line inside the span is a strict-mode error; blank lines between a header and its first row, and after a scope's content, are ignored in both modes.
 - **§12 Byte-order mark, CRLF, trailing spaces**: a single leading U+FEFF is removed before any processing; a trailing CR is excluded from each line's content; trailing spaces are stripped before line classification.
 - **§15 Prototype-key safety**: PHP arrays have no prototype chain, so `__proto__`, `constructor` and `prototype` decode as ordinary own entries with no special handling.
 - **§8 Dotted keys**: single literal keys. Key folding and path expansion were removed in v4.0 and were never implemented here.
