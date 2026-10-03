@@ -198,8 +198,9 @@ final class BugFixesTest extends TestCase
         // Unreachable via public API, so exercise the private encoder path directly.
         $writer = new \HelgeSverre\Toon\LineWriter('  ');
         $encoder = new \HelgeSverre\Toon\Encoders(new EncodeOptions, $writer);
+        // Reflection reaches private methods without setAccessible() on PHP 8.1+,
+        // where the call is a no-op (and deprecated as of 8.5).
         $method = new ReflectionMethod($encoder, 'encodeObjectAsListItem');
-        $method->setAccessible(true);
         $method->invoke($encoder, [], 0);
         $this->assertSame('-', $writer->toString());
     }
